@@ -333,6 +333,7 @@ class UpdateManager:
             response = requests.get(self.version_url, timeout=5)
             response.raise_for_status()
             remote_version = response.text.strip()
+            print(f"Local version: {self.local_version}, Remote version: {remote_version}")  # Debug
             if remote_version > self.local_version:
                 reply = QMessageBox.question(
                     self.parent,
