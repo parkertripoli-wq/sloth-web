@@ -324,8 +324,8 @@ class UpdateManager:
     def __init__(self, parent):
         self.parent = parent
         self.local_version = "1.0.0"  # Hardcoded for now; update this with each release
-        self.version_url = "https://example.com/version.txt"  # Replace with your version file URL
-        self.update_url = "https://example.com/bwsr.py"  # Replace with your update file URL
+        self.version_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/version.txt"  # Version file URL
+        self.update_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py"  # Update file URL
         self.script_path = os.path.abspath(__file__)
 
     def check_for_updates(self):
