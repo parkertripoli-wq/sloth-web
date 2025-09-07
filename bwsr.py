@@ -2,7 +2,7 @@ import sys
 import os
 import json
 import requests
-from PyQt5.QtCore import QUrl, Qt, QDir, QTimer, pyqtSignal, QPointer
+from PyQt5.QtCore import QUrl, Qt, QDir, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QToolBar, QAction, QStatusBar, QFileDialog, QDialog, QListWidget, QDialogButtonBox, QVBoxLayout, QWidget, QTabWidget, QPushButton, QMenu, QProgressBar, QHBoxLayout, QTabBar, QLabel, QTextEdit, QMessageBox
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineDownloadItem
 from PyQt5.QtGui import QIcon, QPalette, QColor, QCursor
@@ -539,30 +539,34 @@ class Browser(QMainWindow):
         
         index = self.tab_widget.addTab(container, "New Tab")
         self.tab_widget.setTabToolTip(index, "Double-click to rename")
-        self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, QPushButton("×"))
-        self.tab_widget.tabBar().tabButton(index, QTabBar.RightSide).clicked.connect(lambda: self.close_tab(index))
+        close_button = QPushButton("×")
+        self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, close_button)
+        close_button.clicked.connect(lambda: self.close_tab(index))
         
         browser.load(url)
-        # Use QPointer to safely manage the browser widget
-        browser_ptr = QPointer(browser)
-        def update_url_safe(q):
-            if not browser_ptr.isNull() and self.tab_widget.currentIndex() == index:
-                self.update_url(q)
-        browser.urlChanged.connect(update_url_safe)
-        browser.titleChanged.connect(lambda title: self.tab_widget.setTabText(index, title) if not browser_ptr.isNull() else None)
-        browser.loadStarted.connect(lambda: self.status.showMessage("Loading...") if not browser_ptr.isNull() else None)
-        browser.loadFinished.connect(self.on_load_finished if not browser_ptr.isNull() else lambda ok: None)
+        browser.urlChanged.connect(lambda q: self.update_url(q) if self.tab_widget.widget(index) else None)
+        browser.titleChanged.connect(lambda title: self.tab_widget.setTabText(index, title) if self.tab_widget.widget(index) else None)
+        browser.loadStarted.connect(lambda: self.status.showMessage("Loading...") if self.tab_widget.widget(index) else None)
+        browser.loadFinished.connect(self.on_load_finished if self.tab_widget.widget(index) else lambda ok: None)
         
         self.tab_widget.setCurrentIndex(index)
         self.update_url_bar(index)  # Update URL bar for new tab
     
     def close_tab(self, index):
         if self.tab_widget.count() > 1:
+            widget = self.tab_widget.widget(index)
+            if widget:
+                browser = widget.layout().itemAt(0).widget()
+                if browser:
+                    try:
+                        browser.urlChanged.disconnect()  # Safely disconnect signal
+                    except TypeError:
+                        pass  # Ignore if already disconnected
             self.tab_widget.removeTab(index)
             self.update_url_bar(self.tab_widget.currentIndex())
     
     def update_url(self, q):
-        if self.url_bar and not self.url_bar.isNull():
+        if self.url_bar and not self.url_bar.parent() is None:  # Check if url_bar is still valid
             self.url_bar.setText(q.toString())
             if q.toString() not in self.history:
                 self.history.append(q.toString())
@@ -570,7 +574,7 @@ class Browser(QMainWindow):
     def update_url_bar(self, index):
         if index >= 0 and index < self.tab_widget.count():
             browser = self.current_browser()
-            if browser:
+            if browser and self.url_bar and not self.url_bar.parent() is None:
                 self.url_bar.setText(browser.url().toString())
     
     def update_progress(self, progress):
