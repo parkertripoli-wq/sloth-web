@@ -1,8 +1,9 @@
 import sys
 import os
 import json
+import requests
 from PyQt5.QtCore import QUrl, Qt, QDir, QTimer, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QToolBar, QAction, QStatusBar, QFileDialog, QDialog, QListWidget, QDialogButtonBox, QVBoxLayout, QWidget, QTabWidget, QPushButton, QMenu, QProgressBar, QHBoxLayout, QTabBar, QLabel, QTextEdit
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QToolBar, QAction, QStatusBar, QFileDialog, QDialog, QListWidget, QDialogButtonBox, QVBoxLayout, QWidget, QTabWidget, QPushButton, QMenu, QProgressBar, QHBoxLayout, QTabBar, QLabel, QTextEdit, QMessageBox
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineDownloadItem
 from PyQt5.QtGui import QIcon, QPalette, QColor, QCursor
 from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
@@ -319,6 +320,64 @@ class CustomWebEnginePage(QWebEnginePage):
         download.accept()
         download.finished.connect(lambda: self.view().parent().status.showMessage(f"Saved image to {file_path}"))
 
+class UpdateManager:
+    def __init__(self, parent):
+        self.parent = parent
+        self.local_version = "1.0.0"  # Hardcoded for now; update this with each release
+        self.version_url = "https://example.com/version.txt"  # Replace with your version file URL
+        self.update_url = "https://example.com/bwsr.py"  # Replace with your update file URL
+        self.script_path = os.path.abspath(__file__)
+
+    def check_for_updates(self):
+        try:
+            response = requests.get(self.version_url, timeout=5)
+            response.raise_for_status()
+            remote_version = response.text.strip()
+            if remote_version > self.local_version:
+                reply = QMessageBox.question(
+                    self.parent,
+                    "Update Available",
+                    f"A new version ({remote_version}) is available. Would you like to update now?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply == QMessageBox.Yes:
+                    self.perform_update(remote_version)
+            else:
+                self.parent.status.showMessage("No updates available.")
+        except requests.RequestException as e:
+            print(f"Update check failed: {e}")
+            self.parent.status.showMessage("Failed to check for updates.")
+
+    def perform_update(self, remote_version):
+        try:
+            # Backup current script
+            backup_path = self.script_path + ".bak"
+            with open(self.script_path, "rb") as f:
+                backup_data = f.read()
+            with open(backup_path, "wb") as f:
+                f.write(backup_data)
+
+            # Download new version
+            response = requests.get(self.update_url, timeout=5)
+            response.raise_for_status()
+            new_script = response.content
+
+            # Write new script
+            with open(self.script_path, "wb") as f:
+                f.write(new_script)
+
+            self.parent.status.showMessage(f"Updated to version {remote_version}. Restart the application.")
+            QMessageBox.information(self.parent, "Update Complete", "Please restart the application to apply the update.")
+        except requests.RequestException as e:
+            print(f"Update download failed: {e}")
+            self.parent.status.showMessage("Update failed. Reverting to backup.")
+            # Revert to backup if update fails
+            with open(self.script_path, "wb") as f:
+                f.write(backup_data)
+        except Exception as e:
+            print(f"Update error: {e}")
+            self.parent.status.showMessage("Update failed. Check console for details.")
+
 class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -337,6 +396,9 @@ class Browser(QMainWindow):
         self.downloads = []
         self.ad_block_enabled = True
         self.dark_theme = True
+        
+        # Update manager
+        self.update_manager = UpdateManager(self)
         
         # Toolbar
         nav_bar = QToolBar("Navigation")
@@ -417,6 +479,11 @@ class Browser(QMainWindow):
         download_mgr_btn = QAction("Download Manager", self)
         download_mgr_btn.triggered.connect(self.show_download_manager)
         nav_bar.addAction(download_mgr_btn)
+        
+        # Update button
+        update_btn = QAction("Check for Updates", self)
+        update_btn.triggered.connect(self.update_manager.check_for_updates)
+        nav_bar.addAction(update_btn)
         
         # Tab widget
         self.tab_widget = QTabWidget()
