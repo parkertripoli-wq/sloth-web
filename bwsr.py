@@ -2,7 +2,7 @@ import sys
 import os
 import json
 import requests
-from PyQt5.QtCore import QUrl, Qt, QDir, QTimer, pyqtSignal
+from PyQt5.QtCore import QUrl, Qt, QDir, QTimer, pyqtSignal, QPointer
 from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QToolBar, QAction, QStatusBar, QFileDialog, QDialog, QListWidget, QDialogButtonBox, QVBoxLayout, QWidget, QTabWidget, QPushButton, QMenu, QProgressBar, QHBoxLayout, QTabBar, QLabel, QTextEdit, QMessageBox
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineDownloadItem
 from PyQt5.QtGui import QIcon, QPalette, QColor, QCursor
@@ -323,7 +323,7 @@ class CustomWebEnginePage(QWebEnginePage):
 class UpdateManager:
     def __init__(self, parent):
         self.parent = parent
-        self.local_version = "1.0.0"  # Hardcoded for now; update this with each release
+        self.local_version = "1.0.1"  # Updated to match version.txt
         self.version_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/version.txt"  # Version file URL
         self.update_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py"  # Update file URL
         self.script_path = os.path.abspath(__file__)
@@ -513,7 +513,10 @@ class Browser(QMainWindow):
         self.apply_theme()
     
     def current_browser(self):
-        return self.tab_widget.currentWidget().layout().itemAt(0).widget()
+        widget = self.tab_widget.currentWidget()
+        if widget and widget.layout():
+            return widget.layout().itemAt(0).widget()
+        return None
     
     def add_new_tab(self, url=None):
         home_url = QUrl("https://cse.google.com/cse?cx=666b70a81f11c4eb9#gsc.tab=0&gsc.sort=")
@@ -540,10 +543,15 @@ class Browser(QMainWindow):
         self.tab_widget.tabBar().tabButton(index, QTabBar.RightSide).clicked.connect(lambda: self.close_tab(index))
         
         browser.load(url)
-        browser.urlChanged.connect(lambda q: self.update_url(q) if self.tab_widget.currentIndex() == index else None)
-        browser.titleChanged.connect(lambda title: self.tab_widget.setTabText(index, title))
-        browser.loadStarted.connect(lambda: self.status.showMessage("Loading..."))
-        browser.loadFinished.connect(self.on_load_finished)
+        # Use QPointer to safely manage the browser widget
+        browser_ptr = QPointer(browser)
+        def update_url_safe(q):
+            if not browser_ptr.isNull() and self.tab_widget.currentIndex() == index:
+                self.update_url(q)
+        browser.urlChanged.connect(update_url_safe)
+        browser.titleChanged.connect(lambda title: self.tab_widget.setTabText(index, title) if not browser_ptr.isNull() else None)
+        browser.loadStarted.connect(lambda: self.status.showMessage("Loading...") if not browser_ptr.isNull() else None)
+        browser.loadFinished.connect(self.on_load_finished if not browser_ptr.isNull() else lambda ok: None)
         
         self.tab_widget.setCurrentIndex(index)
         self.update_url_bar(index)  # Update URL bar for new tab
@@ -554,31 +562,40 @@ class Browser(QMainWindow):
             self.update_url_bar(self.tab_widget.currentIndex())
     
     def update_url(self, q):
-        if self.tab_widget.currentIndex() is not None:
+        if self.url_bar and not self.url_bar.isNull():
             self.url_bar.setText(q.toString())
             if q.toString() not in self.history:
                 self.history.append(q.toString())
     
     def update_url_bar(self, index):
         if index >= 0 and index < self.tab_widget.count():
-            browser = self.tab_widget.widget(index).layout().itemAt(0).widget()
-            self.url_bar.setText(browser.url().toString())
+            browser = self.current_browser()
+            if browser:
+                self.url_bar.setText(browser.url().toString())
     
     def update_progress(self, progress):
         self.progress_bar.setValue(progress)
         self.progress_bar.setVisible(progress < 100)
     
     def navigate_back(self):
-        self.current_browser().back()
+        browser = self.current_browser()
+        if browser:
+            browser.back()
     
     def navigate_forward(self):
-        self.current_browser().forward()
+        browser = self.current_browser()
+        if browser:
+            browser.forward()
     
     def reload_page(self):
-        self.current_browser().reload()
+        browser = self.current_browser()
+        if browser:
+            browser.reload()
     
     def navigate_home(self):
-        self.current_browser().setUrl(QUrl("https://cse.google.com/cse?cx=666b70a81f11c4eb9#gsc.tab=0&gsc.sort="))
+        browser = self.current_browser()
+        if browser:
+            browser.setUrl(QUrl("https://cse.google.com/cse?cx=666b70a81f11c4eb9#gsc.tab=0&gsc.sort="))
     
     def navigate_to_url(self):
         text = self.url_bar.text().strip()
@@ -594,7 +611,9 @@ class Browser(QMainWindow):
         try:
             url = QUrl(text)
             if url.isValid():
-                self.current_browser().setUrl(url)
+                browser = self.current_browser()
+                if browser:
+                    browser.setUrl(url)
             else:
                 self.status.showMessage("Invalid URL")
         except Exception as e:
@@ -605,11 +624,13 @@ class Browser(QMainWindow):
         self.status.showMessage("Loaded" if ok else "Failed to load")
     
     def save_page_as(self):
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Page As", "", "HTML Files (*.html);;All Files (*)"
-        )
-        if file_path:
-            self.current_browser().page().toHtml(lambda html: self.save_html(file_path, html))
+        browser = self.current_browser()
+        if browser:
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "Save Page As", "", "HTML Files (*.html);;All Files (*)"
+            )
+            if file_path:
+                browser.page().toHtml(lambda html: self.save_html(file_path, html))
     
     def save_html(self, file_path, html):
         try:
