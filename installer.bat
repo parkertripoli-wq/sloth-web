@@ -1,4 +1,10 @@
 @echo off
+
+winget install -e --id Python.Python.3.13.7
+
+python -m ensurepip --upgrade
+python -m pip install --upgrade pip
+
 setlocal EnableDelayedExpansion
 
 echo Checking for Python...
