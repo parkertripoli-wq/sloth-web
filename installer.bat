@@ -63,5 +63,6 @@ cscript CreateShortcut.vbs
 del CreateShortcut.vbs
 
 echo Installation complete! Shortcuts are on your Desktop and Start Menu.
+echo Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web.
 echo Run Sloth Web Browser by double-clicking the shortcut or typing 'python bwsr.py' here.
 pause
