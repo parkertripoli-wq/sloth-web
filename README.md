@@ -8,3 +8,4 @@ Go to wiki: [https://github.com/parkertripoli-wq/sloth-web/wiki](https://github.
 # Not updating:
 
 folow this tutorial: [https://www.youtube.com/watch?v=Va6GO31Touc](https://www.youtube.com/watch?v=Va6GO31Touc)
+(you may not have local dick c maby local disk and then somthing elce)
