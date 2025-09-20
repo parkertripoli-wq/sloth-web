@@ -13,4 +13,6 @@ Go to wiki: [https://github.com/parkertripoli-wq/sloth-web/wiki](https://github.
 
 # Not updating:
 
-folow this tutorial: [video](https://youtu.be/jAGZSXCP_3Y)
+folow this tutorial:
+
+[![Watch the video](https://i.ibb.co/4RFwzFGr/Screenshot-2025-09-20-124257.png)](https://youtu.be/jAGZSXCP_3Y)
