@@ -28,10 +28,10 @@ if %ERRORLEVEL% neq 0 (
     )
 )
 
-echo Downloading sloth_web.ico...
+echo Downloading the icon (sloth_web.ico)...
 powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/sloth_web.ico' -OutFile 'sloth_web.ico'"
 
-echo Downloading bwsr.py...
+echo Downloading the browser (bwsr.py)...
 powershell -Command "Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py' -OutFile 'bwsr.py'"
 
 echo Installing dependencies...
@@ -64,6 +64,7 @@ cscript CreateShortcut.vbs
 del CreateShortcut.vbs
 
 echo Installation complete! Shortcuts are on your Desktop and Start Menu.
-echo Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web.
+echo Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web. (work in progress)
 echo Run Sloth Web Browser by double-clicking the shortcut or typing 'python bwsr.py' in %INSTALL_DIR%.
+echo bye have a nice day!
 pause
