@@ -57,6 +57,6 @@ mkdir -p "$HOME/.local/share/applications"
 cp "$HOME/Desktop/Sloth Web Browser.desktop" "$HOME/.local/share/applications/"
 
 echo "Installation complete! Run Sloth Web Browser by double-clicking the desktop icon or typing 'python3 bwsr.py' in $INSTALL_DIR."
-echo "Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web. (work in progress)"
+echo "Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web. (working!)"
 echo "Bye, have a nice day!"
 read -p "Press any key to exit..."
