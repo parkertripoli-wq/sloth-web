@@ -49,6 +49,6 @@ echo "alias sloth-web='python3 $HOME/SlothWeb/bwsr/bwsr.py'" >> "$HOME/.zshrc"
 source "$HOME/.zshrc"
 
 echo "Installation complete! Run Sloth Web Browser by typing 'sloth-web' in the terminal or using the alias."
-echo "Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web. (work in progress)"
+echo "Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web. (working)"
 echo "Bye, have a nice day!"
 read -p "Press any key to exit..."
