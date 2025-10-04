@@ -13,7 +13,43 @@ class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
         super().__init__(parent)
         self.enabled = enabled
         self.blocked_domains = [
-            # ... (list of blocked domains remains the same as previous version)
+            "||adtago.s3.amazonaws.com^", "||analyticsengine.s3.amazonaws.com^", "||analytics.s3.amazonaws.com^",
+            "||advice-ads.s3.amazonaws.com^", "||pagead2.googlesyndication.com^", "||adservice.google.com^",
+            "||pagead2.googleadservices.com^", "||afs.googlesyndication.com^", "||stats.g.doubleclick.net^",
+            "||ad.doubleclick.net^", "||static.doubleclick.net^", "||m.doubleclick.net^", "||mediavisor.doubleclick.net^",
+            "||ads30.adcolony.com^", "||adc3-launch.adcolony.com^", "||events3alt.adcolony.com^", "||wd.adcolony.com^",
+            "||static.media.net^", "||media.net^", "||adservetx.media.net^", "||analytics.google.com^",
+            "||click.googleanalytics.com^", "||google-analytics.com^", "||ssl.google-analytics.com^", "||adm.hotjar.com^",
+            "||identify.hotjar.com^", "||insights.hotjar.com^", "||script.hotjar.com^", "||surveys.hotjar.com^",
+            "||careers.hotjar.com^", "||events.hotjar.io^", "||mouseflow.com^", "||cdn.mouseflow.com^",
+            "||o2.mouseflow.com^", "||gtm.mouseflow.com^", "||api.mouseflow.com^", "||tools.mouseflow.com^",
+            "||cdn-test.mouseflow.com^", "||freshmarketer.com^", "||claritybt.freshmarketer.com^",
+            "||fwtracks.freshmarketer.com^", "||luckyorange.com^", "||api.luckyorange.com^", "||realtime.luckyorange.com^",
+            "||cdn.luckyorange.com^", "||w1.luckyorange.com^", "||upload.luckyorange.net^", "||cs.luckyorange.net^",
+            "||settings.luckyorange.net^", "||stats.wp.com^", "||notify.bugsnag.com^", "||sessions.bugsnag.com^",
+            "||api.bugsnag.com^", "||app.bugsnag.com^", "||browser.sentry-cdn.com^", "||app.getsentry.com^",
+            "||pixel.facebook.com^", "||an.facebook.com^", "||static.ads-twitter.com^", "||ads-api.twitter.com^",
+            "||ads.linkedin.com^", "||analytics.pointdrive.linkedin.com^", "||ads.pinterest.com^", "||log.pinterest.com^",
+            "||analytics.pinterest.com^", "||trk.pinterest.com^", "||events.reddit.com^", "||events.redditmedia.com^",
+            "||ads.youtube.com^", "||ads-api.tiktok.com^", "||analytics.tiktok.com^", "||ads-sg.tiktok.com^",
+            "||analytics-sg.tiktok.com^", "||business-api.tiktok.com^", "||ads.tiktok.com^", "||log.byteoversea.com^",
+            "||ads.yahoo.com^", "||analytics.yahoo.com^", "||geo.yahoo.com^", "||udcm.yahoo.com^",
+            "||analytics.query.yahoo.com^", "||partnerads.ysm.yahoo.com^", "||log.fc.yahoo.com^", "||gemini.yahoo.com^",
+            "||adtech.yahooinc.com^", "||extmaps-api.yandex.net^", "||appmetrica.yandex.ru^", "||adfstat.yandex.ru^",
+            "||metrika.yandex.ru^", "||offerwall.yandex.net^", "||adfox.yandex.ru^", "||auction.unityads.unity3d.com^",
+            "||webview.unityads.unity3d.com^", "||config.unityads.unity3d.com^", "||adserver.unityads.unity3d.com^",
+            "||iot-eu-logser.realme.com^", "||iot-logser.realme.com^", "||bdapi-ads.realmemobile.com^",
+            "||bdapi-in-ads.realmemobile.com^", "||api.ad.xiaomi.com^", "||data.mistat.xiaomi.com^",
+            "||data.mistat.india.xiaomi.com^", "||data.mistat.rus.xiaomi.com^", "||sdkconfig.ad.xiaomi.com^",
+            "||sdkconfig.ad.intl.xiaomi.com^", "||tracking.rus.miui.com^", "||adsfs.oppomobile.com^",
+            "||adx.ads.oppomobile.com^", "||ck.ads.oppomobile.com^", "||data.ads.oppomobile.com^",
+            "||metrics.data.hicloud.com^", "||metrics2.data.hicloud.com^", "||grs.hicloud.com^",
+            "||logservice.hicloud.com^", "||logservice1.hicloud.com^", "||logbak.hicloud.com^", "||click.oneplus.cn^",
+            "||open.oneplus.net^", "||samsungads.com^", "||smetrics.samsung.com^", "||nmetrics.samsung.com^",
+            "||samsung-com.112.2o7.net^", "||analytics-api.samsunghealthcn.com^", "||iadsdk.apple.com^",
+            "||metrics.icloud.com^", "||metrics.mzstatic.com^", "||api-adservices.apple.com^",
+            "||books-analytics-events.apple.com^", "||weather-analytics-events.apple.com^",
+            "||notes-analytics-events.apple.com^"
         ]
 
     def interceptRequest(self, info):
@@ -265,7 +301,7 @@ class CustomWebEnginePage(QWebEnginePage):
 class UpdateManager:
     def __init__(self, parent):
         self.parent = parent
-        self.local_version = "1.0.2"
+        self.local_version = "1.0.3"  # Version remains 1.0.3
         self.version_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/version.txt"
         self.update_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py"
         self.script_path = os.path.abspath(__file__)
@@ -327,19 +363,19 @@ class Browser(QMainWindow):
         nav_bar = QToolBar("Navigation")
         nav_bar.setMovable(False)
         self.addToolBar(Qt.TopToolBarArea, nav_bar)
-        back_btn = QAction("Back", self)
+        back_btn = QAction("⬅️", self)
         back_btn.setShortcut("Alt+Left")
         back_btn.triggered.connect(self.navigate_back)
         nav_bar.addAction(back_btn)
-        forward_btn = QAction("Forward", self)
+        forward_btn = QAction("➡️", self)
         forward_btn.setShortcut("Alt+Right")
         forward_btn.triggered.connect(self.navigate_forward)
         nav_bar.addAction(forward_btn)
-        reload_btn = QAction("Reload", self)
+        reload_btn = QAction("🔄", self)
         reload_btn.setShortcut("Ctrl+R")
         reload_btn.triggered.connect(self.reload_page)
         nav_bar.addAction(reload_btn)
-        home_btn = QAction("Home", self)
+        home_btn = QAction("🏠", self)
         home_btn.setShortcut("Ctrl+H")
         home_btn.triggered.connect(self.navigate_home)
         nav_bar.addAction(home_btn)
@@ -351,32 +387,32 @@ class Browser(QMainWindow):
         self.progress_bar.setMaximum(100)
         self.progress_bar.setVisible(False)
         nav_bar.addWidget(self.progress_bar)
-        new_tab_btn = QAction("New Tab", self)
+        new_tab_btn = QAction("➕", self)
         new_tab_btn.setShortcut("Ctrl+T")
         new_tab_btn.triggered.connect(self.add_new_tab)
         nav_bar.addAction(new_tab_btn)
-        save_page_btn = QAction("Save Page As", self)
+        save_page_btn = QAction("💾", self)
         save_page_btn.setShortcut("Ctrl+S")
         save_page_btn.triggered.connect(self.save_page_as)
         nav_bar.addAction(save_page_btn)
-        bookmark_btn = QAction("Bookmark", self)
+        bookmark_btn = QAction("🔖", self)
         bookmark_btn.setShortcut("Ctrl+B")
         bookmark_btn.triggered.connect(self.add_bookmark)
         nav_bar.addAction(bookmark_btn)
-        bookmarks_btn = QAction("Bookmarks", self)
+        bookmarks_btn = QAction("📑", self)
         bookmarks_btn.setShortcut("Ctrl+Shift+B")
         bookmarks_btn.triggered.connect(self.show_bookmarks)
         nav_bar.addAction(bookmarks_btn)
-        history_btn = QAction("History", self)
+        history_btn = QAction("🕘", self)
         history_btn.triggered.connect(self.show_history)
         nav_bar.addAction(history_btn)
-        settings_btn = QAction("Settings", self)
+        settings_btn = QAction("⚙️", self)
         settings_btn.triggered.connect(self.show_settings)
         nav_bar.addAction(settings_btn)
-        download_mgr_btn = QAction("Download Manager", self)
+        download_mgr_btn = QAction("⬇️", self)
         download_mgr_btn.triggered.connect(self.show_download_manager)
         nav_bar.addAction(download_mgr_btn)
-        update_btn = QAction("Check for Updates", self)
+        update_btn = QAction("🔄 Update", self)
         update_btn.triggered.connect(self.update_manager.check_for_updates)
         nav_bar.addAction(update_btn)
         self.tab_widget = QTabWidget()
@@ -390,7 +426,7 @@ class Browser(QMainWindow):
         self.setStatusBar(self.status)
         self.current_browser().loadProgress.connect(self.update_progress)
         self.current_browser().loadFinished.connect(self.on_load_finished)
-        self.current_browser().urlChanged.connect(self.update_url)
+        self.current_browser().urlChanged.connect(lambda q: self.update_url(q, self.tab_widget.currentIndex()))
         self.current_browser().page().profile().downloadRequested.connect(self.add_download)
         self.apply_theme()
 
@@ -417,15 +453,14 @@ class Browser(QMainWindow):
         profile.setUrlRequestInterceptor(interceptor)
         index = self.tab_widget.addTab(container, "New Tab")
         self.tab_widget.setTabToolTip(index, "Double-click to rename")
-        close_button = QPushButton("×")
+        close_button = QPushButton("✖️")
         self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, close_button)
         close_button.clicked.connect(lambda: self.close_tab(index))
         browser.load(url)
-        browser.urlChanged.connect(lambda q: self.update_url(q) if self.tab_widget.widget(index) else None)
-        browser.titleChanged.connect(lambda title: self.tab_widget.setTabText(index, title) if self.tab_widget.widget(index) else None)
-        browser.loadStarted.connect(lambda: self.status.showMessage("Loading...") if self.tab_widget.widget(index) else None)
-        browser.loadFinished.connect(self.on_load_finished if self.tab_widget.widget(index) else lambda ok: None)
-        self.load_extensions(browser)
+        browser.urlChanged.connect(lambda q, idx=index: self.update_url(q, idx) if self.tab_widget.widget(idx) else None)
+        browser.titleChanged.connect(lambda title, idx=index: self.tab_widget.setTabText(idx, title) if self.tab_widget.widget(idx) else None)
+        browser.loadStarted.connect(lambda idx=index: self.status.showMessage("Loading...") if self.tab_widget.widget(idx) else None)
+        browser.loadFinished.connect(lambda ok, idx=index: self.on_load_finished(ok) if self.tab_widget.widget(idx) else None)
         self.tab_widget.setCurrentIndex(index)
         self.update_url_bar(index)
 
@@ -437,13 +472,16 @@ class Browser(QMainWindow):
                 if browser:
                     try:
                         browser.urlChanged.disconnect()
+                        browser.titleChanged.disconnect()
+                        browser.loadStarted.disconnect()
+                        browser.loadFinished.disconnect()
                     except TypeError:
                         pass
             self.tab_widget.removeTab(index)
             self.update_url_bar(self.tab_widget.currentIndex())
 
-    def update_url(self, q):
-        if self.url_bar and not self.url_bar.parent() is None:
+    def update_url(self, q, index):
+        if index == self.tab_widget.currentIndex() and self.url_bar and self.url_bar.parent():
             self.url_bar.setText(q.toString())
             if q.toString() not in self.history:
                 self.history.append(q.toString())
@@ -451,7 +489,7 @@ class Browser(QMainWindow):
     def update_url_bar(self, index):
         if index >= 0 and index < self.tab_widget.count():
             browser = self.current_browser()
-            if browser and self.url_bar and not self.url_bar.parent() is None:
+            if browser and self.url_bar and self.url_bar.parent():
                 self.url_bar.setText(browser.url().toString())
 
     def update_progress(self, progress):
@@ -629,25 +667,6 @@ class Browser(QMainWindow):
             palette.setColor(QPalette.Highlight, QColor(0, 120, 215))
             palette.setColor(QPalette.HighlightedText, Qt.white)
         app.setPalette(palette)
-
-    def load_extensions(self, browser):
-        try:
-            import requests
-            base_url = "https://parkertripoli-wq.github.io/"
-            response = requests.get(f"{base_url}extensions/")
-            if response.status_code == 200:
-                # Placeholder: Parse directory listing or use a JSON index file
-                active_extensions = ["extension1_v2.js", "extension2_v1.js"]  # Hardcoded for now
-                for ext in active_extensions:
-                    url = f"{base_url}extensions/{ext}"
-                    script = QWebEngineScript()
-                    script.setName(f"extension_{ext}")
-                    script.setInjectionPoint(QWebEngineScript.DocumentReady)
-                    script.setWorldId(QWebEngineScript.MainWorld)
-                    script.setSourceCode(f"fetch('{url}').then(r => r.text()).then(code => eval(code));")
-                    browser.page().profile().scripts().insert(script)
-        except Exception as e:
-            print(f"Failed to load extensions: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
