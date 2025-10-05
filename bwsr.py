@@ -158,7 +158,7 @@ class SettingsDialog(QDialog):
         for i in range(self.parent().tab_widget.count()):
             browser = self.parent().tab_widget.widget(i).layout().itemAt(0).widget()
             profile = browser.page().profile()
-            interceptor = AdBlockInterceptor(self.parent(), self.parent().ad_block_enabled)
+            interceptor = AdBlockInterceptor(self, self.parent().ad_block_enabled)
             profile.setUrlRequestInterceptor(interceptor)
 
     def switch_theme(self):
@@ -426,7 +426,7 @@ class Browser(QMainWindow):
         self.setStatusBar(self.status)
         self.current_browser().loadProgress.connect(self.update_progress)
         self.current_browser().loadFinished.connect(self.on_load_finished)
-        self.current_browser().urlChanged.connect(lambda q: self.update_url(q, self.tab_widget.currentIndex()))
+        self.current_browser().urlChanged.connect(self.update_url)
         self.current_browser().page().profile().downloadRequested.connect(self.add_download)
         self.apply_theme()
 
@@ -457,10 +457,10 @@ class Browser(QMainWindow):
         self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, close_button)
         close_button.clicked.connect(lambda: self.close_tab(index))
         browser.load(url)
-        browser.urlChanged.connect(lambda q, idx=index: self.update_url(q, idx) if self.tab_widget.widget(idx) else None)
-        browser.titleChanged.connect(lambda title, idx=index: self.tab_widget.setTabText(idx, title) if self.tab_widget.widget(idx) else None)
-        browser.loadStarted.connect(lambda idx=index: self.status.showMessage("Loading...") if self.tab_widget.widget(idx) else None)
-        browser.loadFinished.connect(lambda ok, idx=index: self.on_load_finished(ok) if self.tab_widget.widget(idx) else None)
+        browser.urlChanged.connect(lambda q: self.update_url(q) if self.tab_widget.currentIndex() == index else None)
+        browser.titleChanged.connect(lambda title: self.tab_widget.setTabText(index, title))
+        browser.loadStarted.connect(lambda: self.status.showMessage("Loading..."))
+        browser.loadFinished.connect(self.on_load_finished)
         self.tab_widget.setCurrentIndex(index)
         self.update_url_bar(index)
 
@@ -480,16 +480,15 @@ class Browser(QMainWindow):
             self.tab_widget.removeTab(index)
             self.update_url_bar(self.tab_widget.currentIndex())
 
-    def update_url(self, q, index):
-        if index == self.tab_widget.currentIndex() and self.url_bar and self.url_bar.parent():
-            self.url_bar.setText(q.toString())
-            if q.toString() not in self.history:
-                self.history.append(q.toString())
+    def update_url(self, q):
+        self.url_bar.setText(q.toString())
+        if q.toString() not in self.history:
+            self.history.append(q.toString())
 
     def update_url_bar(self, index):
         if index >= 0 and index < self.tab_widget.count():
             browser = self.current_browser()
-            if browser and self.url_bar and self.url_bar.parent():
+            if browser:
                 self.url_bar.setText(browser.url().toString())
 
     def update_progress(self, progress):
@@ -667,6 +666,26 @@ class Browser(QMainWindow):
             palette.setColor(QPalette.Highlight, QColor(0, 120, 215))
             palette.setColor(QPalette.HighlightedText, Qt.white)
         app.setPalette(palette)
+
+    def load_extensions(self, browser):
+        try:
+            import requests
+            base_url = "https://parkertripoli-wq.github.io/"
+            # Fetch and inject extension content directly
+            active_extensions = ["extension1_v2.js", "extension2_v1.js"]  # Hardcoded for now
+            for ext in active_extensions:
+                url = f"{base_url}extensions/{ext}"
+                ext_response = requests.get(url)
+                if ext_response.status_code == 200:
+                    script = QWebEngineScript()
+                    script.setName(f"extension_{ext.replace('.js', '')}")
+                    script.setInjectionPoint(QWebEngineScript.DocumentReady)
+                    script.setWorldId(QWebEngineScript.MainWorld)
+                    script.setSourceCode(ext_response.text)
+                    browser.page().profile().scripts().insert(script)
+                    print(f"Injected extension: {ext}")
+        except Exception as e:
+            print(f"Failed to load extensions: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
