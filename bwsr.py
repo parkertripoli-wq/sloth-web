@@ -3,15 +3,16 @@ import os
 import json
 import requests
 from PyQt5.QtCore import QUrl, Qt, QDir, QTimer, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QToolBar, QAction, QStatusBar, QFileDialog, QDialog, QListWidget, QDialogButtonBox, QVBoxLayout, QWidget, QTabWidget, QPushButton, QMenu, QProgressBar, QHBoxLayout, QTabBar, QLabel, QTextEdit, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QToolBar, QAction, QStatusBar, QFileDialog, QDialog, QListWidget, QDialogButtonBox, QVBoxLayout, QWidget, QTabWidget, QPushButton, QMenu, QProgressBar, QHBoxLayout, QTabBar, QLabel, QTextEdit, QMessageBox, QSlider, QCheckBox, QColorDialog, QInputDialog, QFormLayout, QGroupBox
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile, QWebEngineScript, QWebEngineDownloadItem
 from PyQt5.QtGui import QIcon, QPalette, QColor, QCursor
 from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor
 
 class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
-    def __init__(self, parent=None, enabled=True):
+    def __init__(self, parent=None, enabled=True, privacy_enabled=False):
         super().__init__(parent)
         self.enabled = enabled
+        self.privacy_enabled = privacy_enabled
         self.blocked_domains = [
             "||adtago.s3.amazonaws.com^", "||analyticsengine.s3.amazonaws.com^", "||analytics.s3.amazonaws.com^",
             "||advice-ads.s3.amazonaws.com^", "||pagead2.googlesyndication.com^", "||adservice.google.com^",
@@ -59,9 +60,16 @@ class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
                 if rule.startswith("||") and rule.endswith("^"):
                     domain = rule[2:-1]
                     if domain in url:
-                        info.block(True)
-                        print(f"Blocked network: {url}")
-                        return
+                        if self.privacy_enabled:
+                            reply = QMessageBox.question(None, "Privacy Alert", f"Site {domain} is attempting to access your data. Allow?", QMessageBox.Yes | QMessageBox.No)
+                            if reply == QMessageBox.No:
+                                info.block(True)
+                                print(f"Blocked privacy tracker: {url}")
+                                return
+                        else:
+                            info.block(True)
+                            print(f"Blocked network: {url}")
+                            return
             if "youtube.com" in url and any(ad_term in url.lower() for ad_term in ["/get_video_info", "/ptracking", "/pagead/", "/ads", "admodule"]):
                 info.block(True)
                 print(f"Blocked YouTube ad: {url}")
@@ -158,7 +166,7 @@ class SettingsDialog(QDialog):
         for i in range(self.parent().tab_widget.count()):
             browser = self.parent().tab_widget.widget(i).layout().itemAt(0).widget()
             profile = browser.page().profile()
-            interceptor = AdBlockInterceptor(self, self.parent().ad_block_enabled)
+            interceptor = AdBlockInterceptor(self.parent(), self.parent().ad_block_enabled, self.parent().privacy_enabled)
             profile.setUrlRequestInterceptor(interceptor)
 
     def switch_theme(self):
@@ -203,11 +211,15 @@ class BookmarkDialog(QDialog):
 class CustomWebEnginePage(QWebEnginePage):
     linkHovered = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, incognito=False):
         super().__init__(parent)
         self.parent = parent
+        self.incognito = incognito
         self.profile().scripts().insert(CosmeticFilterScript(self))
         self.linkHovered.connect(self.handle_link_hovered)
+        if incognito:
+            self.profile().setHttpCacheType(QWebEngineProfile.NoCache)
+            self.profile().setPersistentStoragePath("")
 
     def createStandardContextMenu(self):
         menu = super().createStandardContextMenu()
@@ -284,13 +296,13 @@ class CustomWebEnginePage(QWebEnginePage):
 
     def open_link_in_new_tab(self):
         if self.current_link:
-            self.parent.add_new_tab(QUrl(self.current_link))
+            self.parent.add_new_tab(QUrl(self.current_link), self.incognito)
 
     def open_link_in_new_window(self):
         if self.current_link:
             from browser import Browser
             new_window = Browser()
-            new_window.add_new_tab(QUrl(self.current_link))
+            new_window.add_new_tab(QUrl(self.current_link), True)
             new_window.show()
 
     def handle_download(self, download, file_path):
@@ -301,7 +313,7 @@ class CustomWebEnginePage(QWebEnginePage):
 class UpdateManager:
     def __init__(self, parent):
         self.parent = parent
-        self.local_version = "1.0.3"  # Version remains 1.0.3
+        self.local_version = "1.0.4"
         self.version_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/version.txt"
         self.update_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py"
         self.script_path = os.path.abspath(__file__)
@@ -359,23 +371,32 @@ class Browser(QMainWindow):
         self.downloads = []
         self.ad_block_enabled = True
         self.dark_theme = True
+        self.privacy_enabled = False
+        self.window_color = QColor(53, 53, 53) if self.dark_theme else QColor(240, 240, 240)
+        self.text_color = Qt.white if self.dark_theme else Qt.black
+        self.zoom_factor = 1.0
+        self.fun_mode = False  # Initialize fun_mode here
         self.update_manager = UpdateManager(self)
         nav_bar = QToolBar("Navigation")
         nav_bar.setMovable(False)
         self.addToolBar(Qt.TopToolBarArea, nav_bar)
         back_btn = QAction("⬅️", self)
+        back_btn.setToolTip("Back")
         back_btn.setShortcut("Alt+Left")
         back_btn.triggered.connect(self.navigate_back)
         nav_bar.addAction(back_btn)
         forward_btn = QAction("➡️", self)
+        forward_btn.setToolTip("Forward")
         forward_btn.setShortcut("Alt+Right")
         forward_btn.triggered.connect(self.navigate_forward)
         nav_bar.addAction(forward_btn)
         reload_btn = QAction("🔄", self)
+        reload_btn.setToolTip("Reload")
         reload_btn.setShortcut("Ctrl+R")
         reload_btn.triggered.connect(self.reload_page)
         nav_bar.addAction(reload_btn)
         home_btn = QAction("🏠", self)
+        home_btn.setToolTip("Home")
         home_btn.setShortcut("Ctrl+H")
         home_btn.triggered.connect(self.navigate_home)
         nav_bar.addAction(home_btn)
@@ -388,33 +409,57 @@ class Browser(QMainWindow):
         self.progress_bar.setVisible(False)
         nav_bar.addWidget(self.progress_bar)
         new_tab_btn = QAction("➕", self)
+        new_tab_btn.setToolTip("New Tab")
         new_tab_btn.setShortcut("Ctrl+T")
         new_tab_btn.triggered.connect(self.add_new_tab)
         nav_bar.addAction(new_tab_btn)
         save_page_btn = QAction("💾", self)
+        save_page_btn.setToolTip("Save Page")
         save_page_btn.setShortcut("Ctrl+S")
         save_page_btn.triggered.connect(self.save_page_as)
         nav_bar.addAction(save_page_btn)
         bookmark_btn = QAction("🔖", self)
+        bookmark_btn.setToolTip("Add Bookmark")
         bookmark_btn.setShortcut("Ctrl+B")
         bookmark_btn.triggered.connect(self.add_bookmark)
         nav_bar.addAction(bookmark_btn)
         bookmarks_btn = QAction("📑", self)
+        bookmarks_btn.setToolTip("Show Bookmarks")
         bookmarks_btn.setShortcut("Ctrl+Shift+B")
         bookmarks_btn.triggered.connect(self.show_bookmarks)
         nav_bar.addAction(bookmarks_btn)
         history_btn = QAction("🕘", self)
+        history_btn.setToolTip("Show History")
         history_btn.triggered.connect(self.show_history)
         nav_bar.addAction(history_btn)
         settings_btn = QAction("⚙️", self)
+        settings_btn.setToolTip("Settings")
         settings_btn.triggered.connect(self.show_settings)
         nav_bar.addAction(settings_btn)
         download_mgr_btn = QAction("⬇️", self)
+        download_mgr_btn.setToolTip("Download Manager")
         download_mgr_btn.triggered.connect(self.show_download_manager)
         nav_bar.addAction(download_mgr_btn)
         update_btn = QAction("🔄 Update", self)
+        update_btn.setToolTip("Check for Updates")
         update_btn.triggered.connect(self.update_manager.check_for_updates)
         nav_bar.addAction(update_btn)
+        page_settings_btn = QAction("🗏", self)
+        page_settings_btn.setToolTip("Page Settings")
+        page_settings_btn.triggered.connect(self.show_page_settings)
+        nav_bar.addAction(page_settings_btn)
+        privacy_btn = QAction("🕶️", self)
+        privacy_btn.setToolTip("Toggle Privacy")
+        privacy_btn.triggered.connect(self.toggle_privacy)
+        nav_bar.addAction(privacy_btn)
+        incognito_btn = QAction("Incognito", self)
+        incognito_btn.setToolTip("Toggle Incognito")
+        incognito_btn.triggered.connect(self.toggle_incognito)
+        nav_bar.addAction(incognito_btn)
+        fun_btn = QAction("🎉 Fun Mode", self)
+        fun_btn.setToolTip("Enable Fun Features")
+        fun_btn.triggered.connect(self.toggle_fun_mode)
+        nav_bar.addAction(fun_btn)
         self.tab_widget = QTabWidget()
         self.tab_widget.setMovable(True)
         self.tab_widget.setTabsClosable(True)
@@ -436,29 +481,29 @@ class Browser(QMainWindow):
             return widget.layout().itemAt(0).widget()
         return None
 
-    def add_new_tab(self, url=None):
+    def add_new_tab(self, url=None, incognito=False):
         home_url = QUrl("https://cse.google.com/cse?cx=666b70a81f11c4eb9#gsc.tab=0&gsc.sort=")
         if url is None or not isinstance(url, QUrl):
             url = home_url
         elif not url.isValid():
             url = home_url
         browser = QWebEngineView()
-        browser.setPage(CustomWebEnginePage(self))
+        browser.setPage(CustomWebEnginePage(self, incognito))
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(browser)
         profile = browser.page().profile()
-        interceptor = AdBlockInterceptor(self, self.ad_block_enabled)
+        interceptor = AdBlockInterceptor(self, self.ad_block_enabled, self.privacy_enabled)
         profile.setUrlRequestInterceptor(interceptor)
-        index = self.tab_widget.addTab(container, "New Tab")
+        index = self.tab_widget.addTab(container, "New Tab" + (" (Incognito)" if incognito else ""))
         self.tab_widget.setTabToolTip(index, "Double-click to rename")
         close_button = QPushButton("✖️")
         self.tab_widget.tabBar().setTabButton(index, QTabBar.RightSide, close_button)
         close_button.clicked.connect(lambda: self.close_tab(index))
         browser.load(url)
-        browser.urlChanged.connect(lambda q: self.update_url(q) if self.tab_widget.currentIndex() == index else None)
-        browser.titleChanged.connect(lambda title: self.tab_widget.setTabText(index, title))
+        browser.urlChanged.connect(lambda q: self.update_url(q))
+        browser.titleChanged.connect(lambda title: self.tab_widget.setTabText(index, title + (" (Incognito)" if incognito else "")))
         browser.loadStarted.connect(lambda: self.status.showMessage("Loading..."))
         browser.loadFinished.connect(self.on_load_finished)
         self.tab_widget.setCurrentIndex(index)
@@ -539,6 +584,8 @@ class Browser(QMainWindow):
     def on_load_finished(self, ok):
         self.progress_bar.setVisible(False)
         self.status.showMessage("Loaded" if ok else "Failed to load")
+        if self.fun_mode and ok:
+            self.apply_fun_effects()
 
     def save_page_as(self):
         browser = self.current_browser()
@@ -631,61 +678,170 @@ class Browser(QMainWindow):
         dialog = DownloadManager(self)
         dialog.exec_()
 
+    def toggle_privacy(self):
+        self.privacy_enabled = not self.privacy_enabled
+        for i in range(self.tab_widget.count()):
+            browser = self.tab_widget.widget(i).layout().itemAt(0).widget()
+            profile = browser.page().profile()
+            interceptor = AdBlockInterceptor(self, self.ad_block_enabled, self.privacy_enabled)
+            profile.setUrlRequestInterceptor(interceptor)
+        self.status.showMessage(f"Privacy mode {'enabled' if self.privacy_enabled else 'disabled'}")
+
+    def show_page_settings(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Page Settings")
+        layout = QFormLayout()
+
+        # Audio Controller
+        audio_group = QGroupBox("🔊 Audio Controller")
+        audio_layout = QHBoxLayout()
+        self.audio_slider = QSlider(Qt.Horizontal)
+        self.audio_slider.setRange(0, 100)
+        self.audio_slider.setValue(50)
+        self.audio_slider.valueChanged.connect(self.adjust_audio)
+        audio_play = QPushButton("Play")
+        audio_play.clicked.connect(self.play_audio)
+        audio_pause = QPushButton("Pause")
+        audio_pause.clicked.connect(self.pause_audio)
+        audio_mute = QPushButton("Mute")
+        audio_mute.clicked.connect(self.mute_audio)
+        audio_layout.addWidget(self.audio_slider)
+        audio_layout.addWidget(audio_play)
+        audio_layout.addWidget(audio_pause)
+        audio_layout.addWidget(audio_mute)
+        audio_group.setLayout(audio_layout)
+        layout.addRow(audio_group)
+
+        # Zoom Manager
+        zoom_group = QGroupBox("🔍 Zoom Manager")
+        zoom_layout = QHBoxLayout()
+        self.zoom_slider = QSlider(Qt.Horizontal)
+        self.zoom_slider.setRange(10, 200)
+        self.zoom_slider.setValue(int(self.zoom_factor * 100))
+        self.zoom_slider.valueChanged.connect(self.adjust_zoom)
+        zoom_layout.addWidget(self.zoom_slider)
+        zoom_group.setLayout(zoom_layout)
+        layout.addRow(zoom_group)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def adjust_audio(self, value):
+        browser = self.current_browser()
+        if browser:
+            browser.page().runJavaScript(f"document.querySelector('video, audio').volume = {value / 100};")
+
+    def play_audio(self):
+        browser = self.current_browser()
+        if browser:
+            browser.page().runJavaScript("document.querySelector('video, audio').play();")
+
+    def pause_audio(self):
+        browser = self.current_browser()
+        if browser:
+            browser.page().runJavaScript("document.querySelector('video, audio').pause();")
+
+    def mute_audio(self):
+        browser = self.current_browser()
+        if browser:
+            browser.page().runJavaScript("document.querySelector('video, audio').muted = true;")
+
+    def adjust_zoom(self, value):
+        self.zoom_factor = value / 100
+        browser = self.current_browser()
+        if browser:
+            browser.setZoomFactor(self.zoom_factor)
+
+    def find_on_page(self):
+        text, ok = QInputDialog.getText(self, "Find on Page", "Enter text to find:")
+        if ok and text:
+            browser = self.current_browser()
+            if browser:
+                browser.page().findText(text)
+
+    def toggle_incognito(self):
+        self.add_new_tab(incognito=True)
+        self.status.showMessage("Incognito mode enabled for new tab")
+
+    def toggle_fun_mode(self):
+        self.fun_mode = not self.fun_mode
+        self.status.showMessage(f"Fun mode {'enabled' if self.fun_mode else 'disabled'}")
+        if self.fun_mode:
+            self.apply_fun_effects()
+
+    def apply_fun_effects(self):
+        browser = self.current_browser()
+        if browser and self.fun_mode:
+            # Add random background color and confetti effect
+            browser.page().runJavaScript("""
+                document.body.style.backgroundColor = `hsl(${Math.random() * 360}, 70%, 80%)`;
+                function createConfetti() {
+                    const confetti = document.createElement('div');
+                    confetti.style.position = 'absolute';
+                    confetti.style.width = '10px';
+                    confetti.style.height = '10px';
+                    confetti.style.backgroundColor = `hsl(${Math.random() * 360}, 70%, 50%)`;
+                    confetti.style.borderRadius = '50%';
+                    confetti.style.top = `${Math.random() * 100}vh`;
+                    confetti.style.left = `${Math.random() * 100}vw`;
+                    confetti.style.animation = `fall ${Math.random() * 2 + 1}s linear`;
+                    document.body.appendChild(confetti);
+                    setTimeout(() => confetti.remove(), 3000);
+                }
+                for (let i = 0; i < 20; i++) createConfetti();
+                const style = document.createElement('style');
+                style.textContent = `@keyframes fall { to { transform: translateY(100vh); } }`;
+                document.head.appendChild(style);
+            """)
+
     def apply_theme(self):
         app = QApplication.instance()
+        color = QColorDialog.getColor(self.window_color, self, "Choose Theme Color")
+        if color.isValid():
+            self.window_color = color
+            self.text_color = Qt.white if color.lightness() < 128 else Qt.black
         if self.dark_theme:
             app.setStyle("Fusion")
             palette = QPalette()
-            palette.setColor(QPalette.Window, QColor(53, 53, 53))
-            palette.setColor(QPalette.WindowText, Qt.white)
+            palette.setColor(QPalette.Window, self.window_color)
+            palette.setColor(QPalette.WindowText, self.text_color)
             palette.setColor(QPalette.Base, QColor(25, 25, 25))
-            palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
-            palette.setColor(QPalette.ToolTipBase, Qt.white)
-            palette.setColor(QPalette.ToolTipText, Qt.white)
-            palette.setColor(QPalette.Text, Qt.white)
-            palette.setColor(QPalette.Button, QColor(53, 53, 53))
-            palette.setColor(QPalette.ButtonText, Qt.white)
+            palette.setColor(QPalette.AlternateBase, self.window_color.darker(110))
+            palette.setColor(QPalette.ToolTipBase, self.text_color)
+            palette.setColor(QPalette.ToolTipText, self.text_color)
+            palette.setColor(QPalette.Text, self.text_color)
+            palette.setColor(QPalette.Button, self.window_color)
+            palette.setColor(QPalette.ButtonText, self.text_color)
             palette.setColor(QPalette.BrightText, Qt.red)
             palette.setColor(QPalette.Link, QColor(42, 130, 218))
             palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
             palette.setColor(QPalette.HighlightedText, Qt.black)
+            # Set window bar color for dark theme
+            self.setStyleSheet(f"QMainWindow {{ background-color: {self.window_color.name()}; }}")
         else:
             app.setStyle("Fusion")
             palette = QPalette()
-            palette.setColor(QPalette.Window, QColor(240, 240, 240))
-            palette.setColor(QPalette.WindowText, Qt.black)
+            palette.setColor(QPalette.Window, self.window_color)
+            palette.setColor(QPalette.WindowText, self.text_color)
             palette.setColor(QPalette.Base, Qt.white)
-            palette.setColor(QPalette.AlternateBase, QColor(240, 240, 240))
-            palette.setColor(QPalette.ToolTipBase, Qt.black)
-            palette.setColor(QPalette.ToolTipText, Qt.black)
-            palette.setColor(QPalette.Text, Qt.black)
-            palette.setColor(QPalette.Button, Qt.white)
-            palette.setColor(QPalette.ButtonText, Qt.black)
+            palette.setColor(QPalette.AlternateBase, self.window_color.lighter(110))
+            palette.setColor(QPalette.ToolTipBase, self.text_color)
+            palette.setColor(QPalette.ToolTipText, self.text_color)
+            palette.setColor(QPalette.Text, self.text_color)
+            palette.setColor(QPalette.Button, self.window_color)
+            palette.setColor(QPalette.ButtonText, self.text_color)
             palette.setColor(QPalette.BrightText, Qt.red)
             palette.setColor(QPalette.Link, QColor(0, 120, 215))
             palette.setColor(QPalette.Highlight, QColor(0, 120, 215))
             palette.setColor(QPalette.HighlightedText, Qt.white)
+            # Set window bar color for light theme
+            self.setStyleSheet(f"QMainWindow {{ background-color: {self.window_color.lighter(110).name()}; }}")
         app.setPalette(palette)
-
-    def load_extensions(self, browser):
-        try:
-            import requests
-            base_url = "https://parkertripoli-wq.github.io/"
-            # Fetch and inject extension content directly
-            active_extensions = ["extension1_v2.js", "extension2_v1.js"]  # Hardcoded for now
-            for ext in active_extensions:
-                url = f"{base_url}extensions/{ext}"
-                ext_response = requests.get(url)
-                if ext_response.status_code == 200:
-                    script = QWebEngineScript()
-                    script.setName(f"extension_{ext.replace('.js', '')}")
-                    script.setInjectionPoint(QWebEngineScript.DocumentReady)
-                    script.setWorldId(QWebEngineScript.MainWorld)
-                    script.setSourceCode(ext_response.text)
-                    browser.page().profile().scripts().insert(script)
-                    print(f"Injected extension: {ext}")
-        except Exception as e:
-            print(f"Failed to load extensions: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
