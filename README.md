@@ -1,8 +1,6 @@
-
-
-### [Download Instaler](https://github.com/parkertripoli-wq/sloth-web/blob/main/installer.bat)  (While runing please run as adminstator)
-
-![  (1)](https://avatars.githubusercontent.com/u/230787001?v=4)
+<div align="center">
+  
+  ![ (1)](https://avatars.githubusercontent.com/u/230787001?v=4)
 
 #                     **Sloth web dock**   
 Get the installer: [https://github.com/parkertripoli-wq/sloth-web/blob/main/installer.bat](https://github.com/parkertripoli-wq/sloth-web/blob/main/installer.bat)  (While runing please run as adminstator)  
