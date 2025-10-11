@@ -4,9 +4,9 @@
 #                     **Sloth web dock**   
 <div align="left">
   
-[Get the installer ⬇️](https://github.com/parkertripoli-wq/sloth-web/blob/main/installer.bat)    (While runing please run as adminstator)    
-[See the code:‎ ‎ ‎ ‎ ‎ ‎📄](https://github.com/parkertripoli-wq/sloth-web)  
-[Go to wiki‎ ‎ ‎ ‎ ‎ ‎‎ ‎  ‎‎  ‎‎  ‎ 📰](https://github.com/parkertripoli-wq/sloth-web/wiki)
+## [Get the installer ⬇️](https://github.com/parkertripoli-wq/sloth-web/blob/main/installer.bat)    (While runing please run as adminstator)    
+## [See the code:‎ ‎ ‎ ‎ ‎ ‎📄](https://github.com/parkertripoli-wq/sloth-web)  
+## [Go to wiki‎ ‎ ‎ ‎ ‎ ‎‎ ‎  ‎‎  ‎‎  ‎ 📰](https://github.com/parkertripoli-wq/sloth-web/wiki)
 
 <div align="center">
 
