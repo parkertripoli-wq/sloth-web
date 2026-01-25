@@ -3,6 +3,8 @@
   ![ (1)](https://avatars.githubusercontent.com/u/230787001?v=4)
 #                     **Sloth web dock**   
 <div align="left">
+
+## offical easy to navigate site at [Sloth Web Site](https://parkertrip.github.io/slothweb/)
   
 ## [Get the installer ⬇️](https://github.com/parkertripoli-wq/sloth-web/blob/main/installer.bat)    (While runing please run as adminstator)    
 ## [See the code:‎ ‎ ‎ ‎ ‎ ‎📄](https://github.com/parkertripoli-wq/sloth-web)  
