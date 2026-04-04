@@ -1110,7 +1110,7 @@ class Browser(QMainWindow):
         page.profile().scripts().insert(CosmeticFilter())
         
         # Inject the Chrome Store Cloak to fool JS-based detection on Google sites
-        cloak = ChromeStoreCloak("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36")
+        cloak = ChromeStoreCloak("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/437.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/437.36")
         page.profile().scripts().insert(cloak)
         if incognito:
             page.profile().setHttpCacheType(QWebEngineProfile.NoCache)
@@ -1130,8 +1130,8 @@ class Browser(QMainWindow):
         browser.loadProgress.connect(lambda p: (self.progress.setValue(p), self.progress.setVisible(p < 100)))
         
         # Connect navigation signals for back/forward buttons
-        browser.page().interactionChanged.connect(self.update_nav_actions)
         browser.urlChanged.connect(lambda _: self.update_nav_actions())
+        browser.loadFinished.connect(lambda _: self.update_nav_actions())
         
         # Error handling for custom error page
         page.loadFinished.connect(lambda ok: self.handle_load_finished(ok, browser))
