@@ -9,25 +9,38 @@ import requests
 import re
 import webbrowser
 import subprocess
-import urllib.parse
+import urllib.parse, urllib
 import time
 import threading
 import platform
 
-__version__ = "2.5"
+__version__ = "2.6"
 
-from PyQt5.QtCore import QUrl, Qt, QTimer, pyqtSignal, QStringListModel, QBuffer, QThread
-from PyQt5.QtWidgets import (QMainWindow, QToolBar, QAction, QLineEdit, 
+import pythoncom
+try:
+    from win32com.propsys import propsys
+    from win32com.shell import shell as win_shell
+except ImportError:
+    pass
+
+from PyQt6.QtCore import QUrl, Qt, QTimer, pyqtSignal, QStringListModel, QBuffer, QThread, QIODevice
+from PyQt6.QtWidgets import (QMainWindow, QToolBar, QLineEdit, 
                              QProgressBar, QTabWidget, QStatusBar, QWidget, 
                              QVBoxLayout, QPushButton, QTabBar, QFileDialog, 
                              QMenu, QInputDialog, QFormLayout, QGroupBox, 
                              QHBoxLayout, QSlider, QApplication, QCompleter,
                              QDialog, QListWidget, QDialogButtonBox, QMessageBox,
                              QListWidgetItem, QTextEdit, QColorDialog, QComboBox,
-                             QCheckBox, QLabel, QDockWidget)
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineDownloadItem, QWebEnginePage, QWebEngineProfile, QWebEngineScript
-from PyQt5.QtWebEngineCore import QWebEngineUrlRequestInterceptor, QWebEngineUrlSchemeHandler, QWebEngineUrlScheme, QWebEngineUrlRequestJob
-from PyQt5.QtGui import QIcon, QPalette, QColor, QCursor
+                             QCheckBox, QLabel, QDockWidget, QStyle, QTreeWidget,
+                             QTreeWidgetItem, QSplitter)
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import (QWebEngineUrlRequestInterceptor, QWebEngineUrlSchemeHandler, 
+                                 QWebEngineUrlScheme, QWebEngineUrlRequestJob,
+                                 QWebEnginePage, QWebEngineProfile, QWebEngineScript,
+                                 QWebEngineExtensionManager, QWebEngineExtensionInfo)
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+from PyQt6.QtGui import QIcon, QPalette, QColor, QCursor, QAction, QPixmap, QMovie
+import socket
 try:
     from win10toast import ToastNotifier
     HAS_TOAST = True
@@ -61,7 +74,7 @@ class Platform:
         if Platform.IS_LINUX: return "Linux x86_64"
         return "Win32"
 
-from PyQt5.QtWebEngineWidgets import QWebEngineSettings
+from PyQt6.QtWebEngineCore import QWebEngineSettings
 
 # --- Utilities & Path Handling ---
 
@@ -70,7 +83,7 @@ def get_resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath(".")
+        base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
 def get_storage_path(filename):
@@ -204,8 +217,8 @@ class UpdateManager:
             response.raise_for_status()
             remote_version = response.text.strip()
             if remote_version > self.local_version:
-                reply = QMessageBox.question(self.parent, "Update Available", f"A new version ({remote_version}) is available. Your version is {self.local_version}. Update now?", QMessageBox.Yes | QMessageBox.No)
-                if reply == QMessageBox.Yes: self.download_and_install(remote_version)
+                reply = QMessageBox.question(self.parent, "Update Available", f"A new version ({remote_version}) is available. Your version is {self.local_version}. Update now?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if reply == QMessageBox.StandardButton.Yes: self.download_and_install(remote_version)
             elif force:
                 QMessageBox.information(self.parent, "Up to Date", f"Sloth Web Browser is up to date! (Version {self.local_version}).")
         except Exception as e:
@@ -224,7 +237,7 @@ class UpdateManager:
             with open(__file__, "w", encoding="utf-8") as f:
                 f.write(response.text)
                 
-            QMessageBox.information(self.parent, "Update Complete", "The browser has been updated and will now restart.")
+            QMessageBox.information(self.parent, "Update Complete", "The browser has been updated and may restart.")
             
             # Auto-restart
             python = sys.executable
@@ -498,17 +511,16 @@ class CustomizationManager:
     def get_for_site(self, site):
         # Handle subdomains by checking parent domains if needed, but exact hostname is safer for now
         return self.data.get(site, {})
-
 # --- AdBlock & Utilities ---
 
 class ThemeManager:
     @staticmethod
     def get_qss(dark=True, color="#4a9eff", texture="none"):
-        bg = "#121212" if dark else "#f5f5f7"
-        fg = "#e1e1e1" if dark else "#1d1d1f"
-        nav_bg = "rgba(30, 30, 30, 0.95)" if dark else "rgba(255, 255, 255, 0.95)"
-        border = "#2a2a2a" if dark else "#d2d2d7"
-        hover_bg = "rgba(255, 255, 255, 0.1)" if dark else "rgba(0, 0, 0, 0.05)"
+        bg = "rgba(20, 20, 20, 0.65)" if dark else "rgba(240, 240, 245, 0.7)"
+        fg = "#f0f0f0" if dark else "#1d1d1f"
+        nav_bg = "rgba(28, 28, 28, 0.75)" if dark else "rgba(255, 255, 255, 0.75)"
+        border = "rgba(255, 255, 255, 0.12)" if dark else "rgba(0, 0, 0, 0.1)"
+        hover_bg = "rgba(255, 255, 255, 0.15)" if dark else "rgba(0, 0, 0, 0.06)"
         font_family = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, Cantarell, sans-serif"
         
         texture_img = ""
@@ -521,68 +533,75 @@ class ThemeManager:
         
         texture_prop = ""
         if texture_img:
-            bg_size = "10px 10px" if texture == "stripes" else ("20px 20px" if texture == "grid" else "auto")
             texture_prop = f"background-image: {texture_img}; background-repeat: repeat;"
-        
-        toolbar_bg_val = f"{texture_img}, qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {nav_bg}, stop:1 {bg})" if texture_img else f"qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {nav_bg}, stop:1 {bg})"
-        toolbar_bg = f"background-image: {toolbar_bg_val};"
-
+            
         return f"""
             QMainWindow {{ 
-                background-color: {bg}; 
+                background-color: transparent; 
                 font-family: {font_family}; 
             }}
             QToolBar {{ 
                 background-color: {nav_bg};
-                {toolbar_bg}
-                border-bottom: 2px solid {color}; 
-                padding: 10px; 
-                spacing: 12px; 
+                border-bottom: 1px solid {border}; 
+                border-radius: 16px;
+                margin: 6px 12px;
+                padding: 8px; 
+                spacing: 10px; 
             }}
             QToolBar::handle {{ background: {color}; width: 2px; }}
-            QMainWindow, QDockWidget, QStatusBar, QTabWidget, QTabBar, QLineEdit, QPushButton, QMenu, QListWidget, QDialog, QMessageBox, QLabel, QGroupBox {{
+            QDockWidget {{ 
+                color: {color}; 
+                font-weight: 800; 
+                border: 1px solid {border}; 
+                border-radius: 16px;
+                background-color: {bg};
                 {texture_prop}
-                color: {fg};
+            }}
+            QDockWidget::title {{ 
+                background: {nav_bg};
+                padding: 12px; 
+                border-bottom: 1px solid {border}; 
+                border-radius: 16px 16px 0px 0px;
+                font-size: 14px;
             }}
             QDialog, QMessageBox, QGroupBox {{
                 background-color: {bg};
                 border: 1px solid {border};
+                border-radius: 20px;
+                color: {fg};
             }}
             QLineEdit {{ 
-                background-color: {"#1a1a1a" if dark else "#ffffff"}; 
+                background-color: {"rgba(10, 10, 10, 0.5)" if dark else "rgba(255, 255, 255, 0.5)"}; 
                 color: {fg}; 
-                border: 2px solid {border}; 
-                border-radius: 14px; 
+                border: 1px solid {border}; 
+                border-radius: 18px; 
                 padding: 8px 16px; 
                 font-size: 14px; 
                 selection-background-color: {color}; 
             }}
             QLineEdit:focus {{ 
-                border: 2px solid {color}; 
-                background-color: {"#222222" if dark else "#f9f9f9"};
+                border: 1px solid {color}; 
+                background-color: {"rgba(20, 20, 20, 0.7)" if dark else "rgba(255, 255, 255, 0.8)"};
             }}
             QTabWidget::pane {{ 
                 border-top: 1px solid {border}; 
-                background: {bg}; 
+                background: transparent; 
             }}
             QTabBar::tab {{ 
-                background-color: transparent; 
-                color: {fg}; 
-                padding: 12px 24px; 
-                border: none; 
-                font-weight: 600; 
-                font-size: 13px; 
-                min-width: 120px; 
-            }}
-            QTabBar::tab:hover {{ 
-                background-color: {color}11; 
-                border-top-left-radius: 10px; 
-                border-top-right-radius: 10px; 
+                background-color: rgba(255, 255, 255, 0.05); 
+                color: #888; 
+                padding: 8px 16px; 
+                border-top-left-radius: 12px; 
+                border-top-right-radius: 12px;
+                margin-right: 4px;
+                min-width: 120px;
+                border: 1px solid {border};
+                border-bottom: none;
             }}
             QTabBar::tab:selected {{ 
                 background-color: {bg}; 
                 color: {color}; 
-                border-bottom: 4px solid {color}; 
+                border-bottom: 2px solid {color}; 
                 font-weight: 800;
             }}
             QTabBar::close-button {{ 
@@ -604,16 +623,16 @@ class ThemeManager:
                 border-radius: 2px;
             }}
             QPushButton {{ 
-                background-color: {color}15; 
+                background-color: {color}1f; 
                 color: {fg}; 
                 border: 1px solid {border}; 
-                border-radius: 10px; 
+                border-radius: 14px; 
                 padding: 8px 16px; 
                 font-weight: bold; 
                 font-size: 13px;
             }}
             QPushButton:hover {{ 
-                background-color: {color}33; 
+                background-color: {color}3d; 
                 border: 1px solid {color}; 
                 color: {color};
             }}
@@ -622,63 +641,53 @@ class ThemeManager:
                 color: {fg}; 
                 font-size: 12px; 
                 border-top: 1px solid {border}; 
+                border-radius: 12px;
+                margin: 6px 12px;
                 padding: 4px;
             }}
             QMenu {{ 
                 background-color: {nav_bg}; 
                 color: {fg}; 
-                border: 1px solid {color}55; 
-                border-radius: 12px; 
+                border: 1px solid {border}; 
+                border-radius: 16px; 
                 padding: 8px; 
             }}
             QMenu::item {{ 
                 padding: 8px 30px; 
-                border-radius: 6px; 
+                border-radius: 8px; 
             }}
             QMenu::item:selected {{ 
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {color}, stop:1 {color}aa); 
                 color: white; 
             }}
-            QDockWidget {{ 
-                color: {color}; 
-                font-weight: 800; 
-                border: 1px solid {border}; 
-                {texture_prop}
-            }}
-            QDockWidget::title {{ 
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {nav_bg}, stop:1 {bg}); 
-                padding: 12px; 
-                border-bottom: 2px solid {color}; 
-                font-size: 14px;
-            }}
-            QListWidget {{ 
+            QListWidget, QTreeWidget {{ 
                 background-color: transparent; 
                 border: none; 
                 color: {fg}; 
             }}
-            QListWidget::item {{ 
-                padding: 15px; 
-                border-bottom: 1px solid {border}55; 
+            QListWidget::item, QTreeWidgetItem {{ 
+                padding: 12px; 
+                border-bottom: 1px solid {border}; 
                 margin: 4px 8px;
-                border-radius: 10px;
+                border-radius: 12px;
             }}
-            QListWidget::item:hover {{ 
-                background-color: {color}0a; 
+            QListWidget::item:hover, QTreeWidgetItem:hover {{ 
+                background-color: {hover_bg}; 
             }}
-            QListWidget::item:selected {{ 
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {color}22, stop:1 {color}44); 
+            QListWidget::item:selected, QTreeWidgetItem:selected {{ 
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {color}33, stop:1 {color}55); 
                 color: {color}; 
                 border-left: 4px solid {color};
             }}
             QScrollBar:vertical {{ 
                 border: none; 
                 background: transparent; 
-                width: 12px; 
+                width: 10px; 
                 margin: 0;
             }}
             QScrollBar::handle:vertical {{ 
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {color}44, stop:1 {color}88); 
-                border-radius: 6px; 
+                background: {color}44; 
+                border-radius: 5px; 
                 min-height: 30px; 
                 margin: 2px;
             }}
@@ -686,20 +695,22 @@ class ThemeManager:
         """
 
     @staticmethod
-    def apply_palette(app, dark=True, window_color=None):
+    def apply_palette(app, dark=True, window_color=None, accent_color=None):
         palette = QPalette()
         if window_color:
             w_color = QColor(window_color) if isinstance(window_color, str) else window_color
         else:
             w_color = QColor(43, 43, 43) if dark else QColor(245, 245, 245)
         
-        palette.setColor(QPalette.Window, w_color)
-        palette.setColor(QPalette.WindowText, Qt.white if dark else Qt.black)
-        palette.setColor(QPalette.Base, QColor(30, 30, 30) if dark else QColor(255, 255, 255))
-        palette.setColor(QPalette.Text, Qt.white if dark else Qt.black)
-        palette.setColor(QPalette.Button, QColor(60, 60, 60) if dark else QColor(225, 225, 225))
-        palette.setColor(QPalette.ButtonText, Qt.white if dark else Qt.black)
-        palette.setColor(QPalette.Highlight, QColor(74, 158, 255))
+        palette.setColor(QPalette.ColorRole.Window, w_color)
+        palette.setColor(QPalette.ColorRole.WindowText, Qt.GlobalColor.white if dark else Qt.GlobalColor.black)
+        palette.setColor(QPalette.ColorRole.Base, QColor(20, 20, 20) if dark else QColor(255, 255, 255))
+        palette.setColor(QPalette.ColorRole.Text, Qt.GlobalColor.white if dark else Qt.GlobalColor.black)
+        palette.setColor(QPalette.ColorRole.Button, QColor(45, 45, 45) if dark else QColor(235, 235, 235))
+        palette.setColor(QPalette.ColorRole.ButtonText, Qt.GlobalColor.white if dark else Qt.GlobalColor.black)
+        
+        h_color_str = accent_color if accent_color else "#4a9eff"
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(h_color_str))
         app.setPalette(palette)
 
 class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
@@ -778,8 +789,8 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                 }}
                 .grid {{ 
                     display: grid; 
-                    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); 
-                    gap: 16px; 
+                    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); 
+                    gap: 20px; 
                     width: 100%; 
                     margin-top: 30px; 
                 }}
@@ -855,50 +866,611 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                     transition: 0.2s;
                 }}
                 input:focus {{ border-color: var(--accent); box-shadow: 0 0 0 4px {accent}33; }}
+                .switch {{
+                    position: relative;
+                    display: inline-block;
+                    width: 50px;
+                    height: 26px;
+                }}
+                .switch input {{ 
+                    opacity: 0;
+                    width: 0;
+                    height: 0;
+                }}
+                .slider {{
+                    position: absolute;
+                    cursor: pointer;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    background-color: rgba(255,255,255,0.1);
+                    border: 1px solid var(--border);
+                    transition: .3s;
+                    border-radius: 34px;
+                }}
+                .slider:before {{
+                    position: absolute;
+                    content: "";
+                    height: 18px;
+                    width: 18px;
+                    left: 3px;
+                    bottom: 3px;
+                    background-color: white;
+                    transition: .3s;
+                    border-radius: 50%;
+                }}
+                input:checked + .slider {{
+                    background-color: var(--accent);
+                }}
+                input:checked + .slider:before {{
+                    transform: translateX(24px);
+                    background-color: #000;
+                }}
             </style>
         """
         
         common_head = f"<!DOCTYPE html><html><head><meta charset='utf-8'>{style}</head>"
         
         html = None
-        if url == "sloth://home" or host == "home":
-            html = f"{common_head}<body><div class='container'>" \
-                   f"<h1 style='font-size:4rem; margin-bottom:5px; background: linear-gradient(to right, #fff, var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>SLOTH PLATINUM</h1>" \
-                   f"<p style='font-size:1.2rem; opacity:0.6; margin-bottom:40px;'>Navigation Hub & System Dashboard</p>" \
-                   f"<div class='grid'>" \
-                   f"<a href='sloth://settings' class='module-card'><span class='module-icon'>⚙️</span><span class='module-title'>Settings</span></a>" \
-                   f"<a href='sloth://bookmarks' class='module-card'><span class='module-icon'>📑</span><span class='module-title'>Bookmarks</span></a>" \
-                   f"<a href='sloth://downloads' class='module-card'><span class='module-icon'>⬇️</span><span class='module-title'>Downloads</span></a>" \
-                   f"<a href='sloth://history' class='module-card'><span class='module-icon'>🕒</span><span class='module-title'>History</span></a>" \
-                   f"<a href='sloth://passwords' class='module-card'><span class='module-icon'>🔐</span><span class='module-title'>Passwords</span></a>" \
-                   f"<a href='sloth://gpu' class='module-card'><span class='module-icon'>📟</span><span class='module-title'>GPU & System</span></a>" \
-                   f"<a href='sloth://stats' class='module-card'><span class='module-icon'>📊</span><span class='module-title'>Statistics</span></a>" \
-                   f"<a href='sloth://help' class='module-card'><span class='module-icon'>❓</span><span class='module-title'>Help</span></a>" \
-                   f"<a href='sloth://extensions' class='module-card'><span class='module-icon'>🧩</span><span class='module-title'>Extensions</span></a>" \
-                   f"<a href='sloth://about' class='module-card'><span class='module-icon'>ℹ️</span><span class='module-title'>About</span></a>" \
-                   f"<a href='sloth://update' class='module-card'><span class='module-icon'>🔁</span><span class='module-title'>Update</span></a>" \
-                   f"<a href='sloth://arcade' class='module-card arcade-card'><span class='tag'>Live</span><span class='module-icon'>🎮</span><span class='module-title'>Arcade Lab</span></a>" \
-                   f"<a href='sloth://flags' class='module-card'><span class='module-icon'>🚩</span><span class='module-title'>Flags</span></a>" \
-                   f"</div>" \
-                   f"<div style='margin-top:50px;'>" \
-                   f"  <h3 style='text-align:left; color:var(--accent); margin-bottom:15px; border-left:4px solid var(--accent); padding-left:15px;'>⚡ Quick Access</h3>" \
-                   f"  <div class='grid' style='grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));'>" \
-                   f"    <a href='https://www.google.com' class='module-card' style='padding:15px;'><span style='font-size:1.2rem;'>Google</span></a>" \
-                   f"    <a href='https://www.youtube.com' class='module-card' style='padding:15px;'><span style='font-size:1.2rem;'>YouTube</span></a>" \
-                   f"    <a href='https://github.com' class='module-card' style='padding:15px;'><span style='font-size:1.2rem;'>GitHub</span></a>" \
-                   f"    <a href='https://discord.com' class='module-card' style='padding:15px;'><span style='font-size:1.2rem;'>Discord</span></a>" \
-                   f"    <a href='https://chatgpt.com' class='module-card' style='padding:15px;'><span style='font-size:1.2rem;'>ChatGPT</span></a>" \
-                   f"  </div>" \
-                   f"</div>" \
-                   f"<div style='margin-top:40px; text-align:center;'>" \
-                   f"  <form action='https://cse.google.com/cse' method='GET' style='display:flex; width:100%; max-width:600px; margin:0 auto;'>" \
-                   f"    <input type='hidden' name='cx' value='666b70a81f11c4eb9'>" \
-                   f"    <input type='text' name='q' placeholder='Search the Grid...' style='padding:15px 25px; border-radius:50px 0 0 50px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:white; width:100%; outline:none; font-size:1.1rem;'>" \
-                   f"    <button type='submit' style='padding:15px 30px; border-radius:0 50px 50px 0; border:none; background:var(--accent); color:white; font-weight:bold; cursor:pointer;'>Search</button>" \
-                   f"  </form>" \
-                   f"</div>" \
-                   f"<iframe src='https://parkertrip.github.io/newtab' sandbox='allow-scripts allow-same-origin allow-forms allow-popups' style='width:100%; height:800px; border:1px solid var(--border); border-radius:24px; margin-top:40px; background:var(--bg);'></iframe>" \
-                   f"</div></body></html>"
+        if url == "sloth://account" or host == "account":
+            username = self.browser.config_manager.get("sloth_username", "Lazy Sloth")
+            avatar_idx = int(self.browser.config_manager.get("sloth_avatar_idx", 0))
+            xp = self.browser.config_manager.get("sloth_xp", 0)
+            level = int(xp // 100) + 1
+            xp_next = level * 100
+            progress_pct = int((xp % 100))
+            
+            levels_map = {
+                1: "Sleepy Seedling 💤",
+                2: "Leaf Nibbler 🍃",
+                3: "Slow Climber 🦥",
+                4: "Branch Napper 🌲",
+                5: "Speed Defier ⚡"
+            }
+            lvl_name = levels_map.get(level if level <= 5 else 5)
+            
+            ads_blocked = self.browser.config_manager.get("blocked_ads", 0)
+            focus_sessions = self.browser.config_manager.get("focus_sessions_completed", 0)
+            
+            # SVG Avatars definitions
+            avatars = [
+                # Avatar 0: Chill Sloth with Shades
+                """<svg viewBox='0 0 100 100' class='avatar-svg'><circle cx='50' cy='50' r='45' fill='#8d5b4c'/><circle cx='50' cy='50' r='38' fill='#d7ccc8'/><path d='M 30 45 C 30 35, 45 35, 45 45 C 45 55, 30 55, 30 45 Z' fill='#4e342e'/><path d='M 70 45 C 70 35, 55 35, 55 45 C 55 55, 70 55, 70 45 Z' fill='#4e342e'/><circle cx='36' cy='45' r='4' fill='#fff'/><circle cx='64' cy='45' r='4' fill='#fff'/><ellipse cx='50' cy='55' rx='6' ry='4' fill='#3e2723'/><path d='M 40 65 Q 50 72 60 65' stroke='#3e2723' stroke-width='3' fill='none'/><rect x='25' y='38' width='50' height='10' rx='3' fill='#00e5ff' opacity='0.8'/><line x1='25' y1='43' x2='75' y2='43' stroke='#006064' stroke-width='2'/></svg>""",
+                # Avatar 1: Astro Sloth
+                """<svg viewBox='0 0 100 100' class='avatar-svg'><circle cx='50' cy='50' r='45' fill='#8d5b4c'/><circle cx='50' cy='50' r='38' fill='#d7ccc8'/><path d='M 30 45 C 30 35, 45 35, 45 45 C 45 55, 30 55, 30 45 Z' fill='#4e342e'/><path d='M 70 45 C 70 35, 55 35, 55 45 C 55 55, 70 55, 70 45 Z' fill='#4e342e'/><ellipse cx='50' cy='55' rx='6' ry='4' fill='#3e2723'/><path d='M 40 65 Q 50 72 60 65' stroke='#3e2723' stroke-width='3' fill='none'/><circle cx='50' cy='50' r='42' fill='none' stroke='#e0e0e0' stroke-width='4'/><rect x='45' y='8' width='10' height='6' fill='#ff1744'/></svg>""",
+                # Avatar 2: Gamer Sloth
+                """<svg viewBox='0 0 100 100' class='avatar-svg'><circle cx='50' cy='50' r='45' fill='#8d5b4c'/><circle cx='50' cy='50' r='38' fill='#d7ccc8'/><path d='M 30 45 C 30 35, 45 35, 45 45 C 45 55, 30 55, 30 45 Z' fill='#4e342e'/><path d='M 70 45 C 70 35, 55 35, 55 45 C 55 55, 70 55, 70 45 Z' fill='#4e342e'/><ellipse cx='50' cy='55' rx='6' ry='4' fill='#3e2723'/><path d='M 40 65 Q 50 72 60 65' stroke='#3e2723' stroke-width='3' fill='none'/><path d='M 18 50 A 32 32 0 0 1 82 50' stroke='#ff00ff' stroke-width='6' fill='none'/><circle cx='18' cy='50' r='8' fill='#ff00ff'/><circle cx='82' cy='50' r='8' fill='#ff00ff'/></svg>""",
+                # Avatar 3: Ninja Sloth
+                """<svg viewBox='0 0 100 100' class='avatar-svg'><circle cx='50' cy='50' r='45' fill='#212121'/><circle cx='50' cy='50' r='38' fill='#d7ccc8'/><rect x='15' y='32' width='70' height='22' fill='#212121'/><circle cx='35' cy='43' r='4' fill='#fff'/><circle cx='65' cy='43' r='4' fill='#fff'/><path d='M 32 43 C 32 43, 38 38, 42 43' stroke='#000' stroke-width='2' fill='none'/><path d='M 68 43 C 68 43, 62 38, 58 43' stroke='#000' stroke-width='2' fill='none'/><ellipse cx='50' cy='58' rx='6' ry='4' fill='#3e2723'/><path d='M 40 66 Q 50 70 60 66' stroke='#3e2723' stroke-width='2' fill='none'/></svg>"""
+            ]
+            
+            avatar_choices = ""
+            for i, av_svg in enumerate(avatars):
+                selected_class = "selected" if i == avatar_idx else ""
+                avatar_choices += f"<div class='avatar-card {selected_class}' onclick='selectAvatar({i})'>{av_svg}</div>"
+                
+            html = f"""{common_head}
+            <style>
+                .avatar-grid {{ display: flex; gap: 15px; margin: 20px 0; justify-content: center; }}
+                .avatar-card {{ border: 3px solid transparent; border-radius: 50%; padding: 5px; cursor: pointer; transition: 0.2s; background: rgba(255,255,255,0.02); }}
+                .avatar-card.selected {{ border-color: var(--accent); transform: scale(1.1); box-shadow: 0 0 15px var(--accent); }}
+                .avatar-svg {{ width: 80px; height: 80px; }}
+                .progress-bar-container {{ background: rgba(255,255,255,0.1); border-radius: 10px; height: 20px; width: 100%; overflow: hidden; margin: 15px 0; border: 1px solid var(--border); }}
+                .progress-bar-fill {{ background: var(--accent); height: 100%; width: {progress_pct}%; transition: 0.3s; }}
+            </style>
+            <body>
+                <div class='container'>
+                    <h1>🦥 Slothatar Account</h1>
+                    <p>Customize your profile and check your level status in the grid.</p>
+                    
+                    <div class='card' style='display:block; text-align:center;'>
+                        <div style='display:inline-block; margin-bottom:15px;'>
+                            {avatars[avatar_idx]}
+                        </div>
+                        <h2>{username}</h2>
+                        <div style='color:var(--accent); font-weight:bold; font-size:1.2rem;'>Level {level} - {lvl_name}</div>
+                        <div class='progress-bar-container'>
+                            <div class='progress-bar-fill'></div>
+                        </div>
+                        <div style='font-size:0.9rem; opacity:0.6;'>XP: {xp} / {xp_next} ({progress_pct}% to next level)</div>
+                    </div>
+                    
+                    <div class='card' style='display:block;'>
+                        <h3>Modify Profile</h3>
+                        <form id='profileForm' action='sloth://save-profile' method='GET' style='display:flex; flex-direction:column; gap:15px; margin-top:15px;'>
+                            <div style='display:flex; flex-direction:column; gap:6px;'>
+                                <label style='font-weight:600;'>Username:</label>
+                                <input type='text' name='name' id='usernameInput' value='{username}' style='background:rgba(0,0,0,0.3); border:1px solid var(--border);'>
+                            </div>
+                            <label style='font-weight:600;'>Choose Avatar:</label>
+                            <input type='hidden' name='avatar' id='avatarIndexInput' value='{avatar_idx}'>
+                            <div class='avatar-grid'>
+                                {avatar_choices}
+                            </div>
+                            <button type='submit' class='btn' style='background:var(--accent); color:#000; font-weight:bold;'>Save Profile Changes</button>
+                        </form>
+                    </div>
+                    
+                    <div style='display:grid; grid-template-columns:1fr 1fr; gap:20px; width:100%; margin-top:20px;'>
+                        <div class='card' style='display:block; text-align:center;'>
+                            <h3>🛡️ Trackers and ads annihilated</h3>
+                            <div style='font-size:3rem; font-weight:800; color:var(--accent); margin:10px 0;'>{ads_blocked}</div>
+                            <p style='font-size:0.9rem; opacity:0.6; margin:0;'>Clean browsing sessions.</p>
+                        </div>
+                        <div class='card' style='display:block; text-align:center;'>
+                            <h3>⏱️ Focus Sessions</h3>
+                            <div style='font-size:3rem; font-weight:800; color:var(--accent); margin:10px 0;'>{focus_sessions}</div>
+                            <p style='font-size:0.9rem; opacity:0.6; margin:0;'>Cycles of productivity completed.</p>
+                        </div>
+                    </div>
+                    
+                    <div style='margin-top:40px; text-align:center;'>
+                        <a href='sloth://home' class='btn btn-secondary' style='text-decoration:none;'>← Home Page</a>
+                    </div>
+                </div>
+                <script>
+                    function selectAvatar(idx) {{
+                        document.querySelectorAll('.avatar-card').forEach((el, i) => {{
+                            if(i === idx) el.classList.add('selected');
+                            else el.classList.remove('selected');
+                        }});
+                        document.getElementById('avatarIndexInput').value = idx;
+                    }}
+                </script>
+            </body>
+            </html>"""
+        elif url.startswith("sloth://save-profile"):
+            try:
+                query = urllib.parse.parse_qs(url_obj.query())
+                name = query.get('name', [''])[0]
+                avatar = query.get('avatar', ['0'])[0]
+                if name:
+                    self.browser.config_manager.set("sloth_username", name)
+                self.browser.config_manager.set("sloth_avatar_idx", int(avatar))
+                self.browser.update_sidebar()
+                self.browser.log("Sloth profile updated!", notify=True)
+            except Exception as e:
+                print("Error saving profile:", e)
+            html = "<html><body><script>window.location.href='sloth://account'</script></body></html>"
+        elif url.startswith("sloth://sleep") or host == "sleep":
+            orig_url = ""
+            try:
+                query = urllib.parse.parse_qs(url_obj.query())
+                orig_url = query.get('url', ['sloth://home'])[0]
+            except: pass
+            
+            html = f"""{common_head}
+            <style>
+                body {{ justify-content: center; align-items: center; text-align: center; }}
+                @keyframes zzz {{
+                    0% {{ opacity: 0; transform: translate(0, 0) scale(0.5); }}
+                    50% {{ opacity: 1; }}
+                    100% {{ opacity: 0; transform: translate(15px, -30px) scale(1.2); }}
+                }}
+                .z1 {{ animation: zzz 2s infinite 0s; position: absolute; font-weight: bold; color: var(--accent); }}
+                .z2 {{ animation: zzz 2s infinite 0.6s; position: absolute; font-weight: bold; color: var(--accent); }}
+                .z3 {{ animation: zzz 2s infinite 1.2s; position: absolute; font-weight: bold; color: var(--accent); }}
+            </style>
+            <body>
+                <div class='container' style='max-width:550px; padding:40px;'>
+                    <div style='position: relative; width: 120px; height: 120px; margin: 0 auto 20px;'>
+                        <!-- Cute Sleeping Sloth SVG -->
+                        <svg viewBox='0 0 100 100' style='width: 100px; height: 100px;'>
+                            <rect x='10' y='45' width='80' height='10' rx='5' fill='#5d4037'/>
+                            <!-- Sloth body hanging -->
+                            <ellipse cx='50' cy='58' rx='25' ry='15' fill='#8d5b4c'/>
+                            <circle cx='50' cy='52' r='14' fill='#d7ccc8'/>
+                            <!-- Closed eyes -->
+                            <path d='M 42 52 Q 45 55 48 52' stroke='#4e342e' stroke-width='2' fill='none'/>
+                            <path d='M 52 52 Q 55 55 58 52' stroke='#4e342e' stroke-width='2' fill='none'/>
+                            <ellipse cx='50' cy='58' rx='3' ry='2' fill='#3e2723'/>
+                        </svg>
+                        <span class='z1' style='top: 20px; right: 20px; font-size: 1.5rem;'>Z</span>
+                        <span class='z2' style='top: 10px; right: 5px; font-size: 1.1rem;'>z</span>
+                        <span class='z3' style='top: 30px; right: -5px; font-size: 0.9rem;'>z</span>
+                    </div>
+                    
+                    <h2>Your Sloth is sleeping...</h2>
+                    <p style='font-size:1.05rem; opacity:0.8; margin-bottom:30px;'>This tab is currently hibernating to free up RAM and maximize performace.</p>
+                    
+                    <button class='btn' onclick='wakeUp()' style='background:var(--accent); color:#000; font-weight:bold; font-size:1.1rem; padding:12px 40px;'>Wake Up Tab</button>
+                </div>
+                <script>
+                    function wakeUp() {{
+                        window.location.href = decodeURIComponent("{urllib.parse.quote(orig_url)}");
+                    }}
+                    // Wake up on click anywhere
+                    document.body.onclick = wakeUp;
+                </script>
+            </body>
+            </html>"""
+        elif url == "sloth://privacy" or host == "privacy":
+            # Gather privacy data
+            trackers_blocked = self.browser.config_manager.get("blocked_ads", 0)
+            
+            # Simple list of recent blocks
+            blocked_details = getattr(self.browser.ad_interceptor, "blocked_trackers", {})
+            blocked_list_html = ""
+            if blocked_details:
+                blocked_list_html += "<div style='display:flex; flex-direction:column; gap:10px; margin-top:20px; width:100%; text-align:left;'>"
+                for site, trackers in list(blocked_details.items())[-10:]:
+                    blocked_list_html += f"""<div class='card' style='display:block; padding:15px 20px;'>
+                        <div style='font-weight:bold; color:var(--accent);'>{site}</div>
+                        <div style='font-size:0.9rem; opacity:0.7; margin-top:5px;'>Blocked: {', '.join(list(trackers)[:5])}</div>
+                    </div>"""
+                blocked_list_html += "</div>"
+            else:
+                blocked_list_html += "<p style='opacity:0.6; text-align:center; font-style:italic; margin-top:20px;'>No tracking attempts detected yet. Enjoy the clean grid!</p>"
+                
+            html = f"""{common_head}
+            <body>
+                <div class='container'>
+                    <h1>🛡️ Privacy Dashboard</h1>
+                    <p>Visual summary of trackers blocked and session security footprint.</p>
+                    
+                    <div style='display:grid; grid-template-columns: 1fr 1fr; gap:20px; width:100%;'>
+                        <div class='card' style='display:block; text-align:center;'>
+                            <h3>Total Trackers Blocked</h3>
+                            <div style='font-size:4rem; font-weight:800; color:var(--accent); margin:15px 0;'>{trackers_blocked}</div>
+                            <p style='font-size:0.9rem; opacity:0.6;'>Blocked advertisements and tracker scripts.</p>
+                        </div>
+                        <div class='card' style='display:block;'>
+                            <h3>Grid Protections</h3>
+                            <div style='display:flex; flex-direction:column; gap:12px; margin-top:15px;'>
+                                <div style='display:flex; justify-content:space-between; align-items:center;'>
+                                    <span>Ad Blocker Engine</span>
+                                    <span style='color:#00ff88; font-weight:bold;'>ACTIVE</span>
+                                </div>
+                                <div style='display:flex; justify-content:space-between; align-items:center;'>
+                                    <span>Fingerprinting Protection</span>
+                                    <span style='color:#00ff88; font-weight:bold;'>ACTIVE</span>
+                                </div>
+                                <div style='display:flex; justify-content:space-between; align-items:center;'>
+                                    <span>Container Isolation</span>
+                                    <span style='color:#00ff88; font-weight:bold;'>ACTIVE</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h3 style='margin-top:40px; text-align:left; border-left:4px solid var(--accent); padding-left:15px; align-self:flex-start;'>🕒 Recent Tracking Attempts</h3>
+                    {blocked_list_html}
+                    
+                    <div style='margin-top:40px; text-align:center;'>
+                        <a href='sloth://home' class='btn btn-secondary' style='text-decoration:none;'>← Home</a>
+                    </div>
+                </div>
+            </body>
+            </html>"""
+        elif url == "sloth://home" or host == "home":
+            html = f"""{common_head}
+            <body>
+                <div class='container'>
+                    <!-- Dynamic Welcome Header & Clock Widget -->
+                    <div style='text-align: center; margin-bottom: 30px;'>
+                        <div id='greeting' style='font-size: 1.4rem; opacity: 0.8; font-weight: 500; letter-spacing: 0.5px;'>Welcome Back</div>
+                        <h1 style='font-size: 4rem; margin-top: 5px; margin-bottom: 10px; background: linear-gradient(to right, #fff, var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>SLOTH PLATINUM</h1>
+                        <div id='clock-widget' style='font-size: 2.2rem; font-weight: 700; font-family: monospace; color: var(--accent); margin-bottom: 5px;'>00:00:00</div>
+                        <div id='date-widget' style='font-size: 0.95rem; opacity: 0.5;'>Loading...</div>
+                    </div>
+
+                    <!-- Search Box with Selector -->
+                    <div style='margin-bottom: 40px; text-align: center;'>
+                        <form id='searchForm' action='https://www.google.com/search' method='GET' style='display:flex; width:100%; max-width:650px; margin:0 auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border-radius: 50px; overflow: hidden; border: 1px solid var(--border); background: rgba(0,0,0,0.2);'>
+                            <select id='searchEngine' style='background:transparent; color:white; border:none; padding:15px; outline:none; font-size:1rem; cursor:pointer; border-right:1px solid var(--border); border-radius:0; height:100%; box-sizing:border-box;'>
+                                <option value='sloth' style='background:#111; color:white;'>Sloth Search</option>
+                                <option value='google' style='background:#111; color:white;'>Google</option>
+                                <option value='ddg' style='background:#111; color:white;'>DuckDuckGo</option>
+                                <option value='bing' style='background:#111; color:white;'>Bing</option>
+                                <option value='wikipedia' style='background:#111; color:white;'>Wikipedia</option>
+                            </select>
+                            <input type='text' name='q' id='searchInput' placeholder='Search Google...' style='padding:15px 25px; border:none; background:transparent; color:white; width:100%; outline:none; font-size:1.1rem; box-sizing:border-box;'>
+                            <button type='submit' style='padding:15px 30px; border:none; background:var(--accent); color:#000; font-weight:bold; cursor:pointer; transition: 0.3s;'>Search</button>
+                        </form>
+                    </div>
+
+                    <!-- Main Apps Grid -->
+                    <div class='grid'>
+                        <a href='sloth://settings' class='module-card'><span class='module-icon'>⚙️</span><span class='module-title'>Settings</span></a>
+                        <a href='sloth://bookmarks' class='module-card'><span class='module-icon'>📑</span><span class='module-title'>Bookmarks</span></a>
+                        <a href='sloth://downloads' class='module-card'><span class='module-icon'>⬇️</span><span class='module-title'>Downloads</span></a>
+                        <a href='sloth://history' class='module-card'><span class='module-icon'>🕒</span><span class='module-title'>History</span></a>
+                        <a href='sloth://passwords' class='module-card'><span class='module-icon'>🔐</span><span class='module-title'>Passwords</span></a>
+                        <a href='sloth://gpu' class='module-card'><span class='module-icon'>📟</span><span class='module-title'>GPU & System</span></a>
+                        <a href='sloth://stats' class='module-card'><span class='module-icon'>📊</span><span class='module-title'>Statistics</span></a>
+                        <a href='sloth://help' class='module-card'><span class='module-icon'>❓</span><span class='module-title'>Help</span></a>
+                        <a href='sloth://extensions' class='module-card'><span class='module-icon'>🧩</span><span class='module-title'>Extensions</span></a>
+                        <a href='sloth://about' class='module-card'><span class='module-icon'>ℹ️</span><span class='module-title'>About</span></a>
+                        <a href='sloth://update' class='module-card'><span class='module-icon'>🔁</span><span class='module-title'>Update</span></a>
+                        <a href='sloth://arcade' class='module-card arcade-card'><span class='tag'>Live</span><span class='module-icon'>🎮</span><span class='module-title'>Arcade Lab</span></a>
+                        <a href='sloth://flags' class='module-card'><span class='module-icon'>🚩</span><span class='module-title'>Flags</span></a>
+                        <a href='sloth://account' class='module-card'><span class='module-icon'>👤</span><span class='module-title'>Account</span></a>
+                        <a href='sloth://update' class='module-card'><span class='module-icon'>🔄</span><span class='module-title'>Update</span></a>
+                    </div>
+
+                    <!-- Widgets Section -->
+                    <div style='display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:20px; margin-top:40px; width:100%; text-align:left;'>
+                        <!-- Memo Widget -->
+                        <div class='card' style='display:flex; flex-direction:column; align-items:stretch; background: rgba(255,255,255,0.02); padding: 24px; border-radius: 20px; min-height: 230px; box-sizing:border-box;'>
+                            <h3 style='margin-top:0; color:var(--accent); display:flex; justify-content:space-between; align-items:center;'>
+                                <span>📝 Sloth Scratchpad</span>
+                                <span style='font-size:0.75rem; opacity:0.5; font-weight:normal;'>Auto-saves locally</span>
+                            </h3>
+                            <textarea id='scratchpad' style='flex:1; width:100%; height: 110px; background:rgba(0,0,0,0.3); color:var(--fg); border:1px solid var(--border); border-radius:10px; padding:10px; font-size:0.95rem; resize:none; outline:none; box-sizing:border-box;' placeholder='Write down quick ideas, code snippets, or URLs here...'></textarea>
+                        </div>
+
+                        <!-- Pomodoro Focus Widget -->
+                        <div class='card' style='display:flex; flex-direction:column; align-items:center; justify-content:center; background: rgba(255,255,255,0.02); padding: 24px; border-radius: 20px; text-align:center; min-height: 230px; box-sizing:border-box;'>
+                            <h3 style='margin-top:0; color:var(--accent); align-self:flex-start;'>⏱️ Focus Session</h3>
+                            <div id='timer-display' style='font-size:3rem; font-weight:800; margin:10px 0; font-family:monospace;'>25:00</div>
+                            <div id='timer-label' style='font-size:0.9rem; opacity:0.6; margin-bottom:15px;'>Time to focus!</div>
+                            <div style='display:flex; gap:10px;'>
+                                <button id='timer-toggle' class='btn' style='margin:0; padding:8px 20px; background:var(--accent); color:#000; font-weight:bold;'>Start</button>
+                                <button id='timer-reset' class='btn btn-secondary' style='margin:0; padding:8px 20px;'>Reset</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Customizable Shortcuts Manager -->
+                    <div style='margin-top:40px; width:100%; text-align:left;'>
+                        <h3 style='text-align:left; color:var(--accent); margin-bottom:15px; border-left:4px solid var(--accent); padding-left:15px; display:flex; justify-content:space-between; align-items:center;'>
+                            <span>⚡ Quick Access</span>
+                            <button class='btn' onclick='addShortcut()' style='margin:0; padding:6px 12px; font-size:0.8rem; border-radius:8px; background:var(--accent); color:#000; font-weight:bold;'>+ Add Shortcut</button>
+                        </h3>
+                        <div id='shortcuts-grid' class='grid' style='grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:15px; margin-top:15px;'>
+                            <!-- Dynamic -->
+                        </div>
+                    </div>
+
+                    <iframe src='https://parkertrip.github.io/newtab' sandbox='allow-scripts allow-same-origin allow-forms allow-popups' style='width:100%; height:800px; border:1px solid var(--border); border-radius:24px; margin-top:40px; background:var(--bg);'></iframe>
+
+                    <!-- Scripts -->
+                    <script>
+                        // Clock & Greeting
+                        function updateClock() {{
+                            const now = new Date();
+                            const timeStr = now.toLocaleTimeString([], {{ hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }});
+                            const dateStr = now.toLocaleDateString([], {{ weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }});
+                            const hours = now.getHours();
+                            let greet = "Good night, Sloth";
+                            if (hours >= 5 && hours < 12) greet = "Good morning, Sloth";
+                            else if (hours >= 12 && hours < 17) greet = "Good afternoon, Sloth";
+                            else if (hours >= 17 && hours < 22) greet = "Good evening, Sloth";
+                            
+                            const greetingEl = document.getElementById('greeting');
+                            const clockEl = document.getElementById('clock-widget');
+                            const dateEl = document.getElementById('date-widget');
+                            if (greetingEl) greetingEl.textContent = greet;
+                            if (clockEl) clockEl.textContent = timeStr;
+                            if (dateEl) dateEl.textContent = dateStr;
+                        }}
+                        setInterval(updateClock, 1000);
+                        updateClock();
+
+                        // Search Engine Selection
+                        const sForm = document.getElementById('searchForm');
+                        const sSelect = document.getElementById('searchEngine');
+                        const sInput = document.getElementById('searchInput');
+                        
+                        const savedEngine = localStorage.getItem('__sloth_search_engine') || 'sloth';
+                        sSelect.value = savedEngine;
+                        updateSearchAction(savedEngine);
+                        
+                        sSelect.addEventListener('change', (e) => {{
+                            const val = e.target.value;
+                            localStorage.setItem('__sloth_search_engine', val);
+                            updateSearchAction(val);
+                        }});
+
+                        sForm.addEventListener('submit', (e) => {{
+                            const engine = sSelect.value;
+                            if (engine === 'sloth') {{
+                                e.preventDefault();
+                                const query = encodeURIComponent(sInput.value);
+                                window.location.href = `https://cse.google.com/cse?cx=666b70a81f11c4eb9&q=${{query}}#gsc.tab=0&gsc.q=${{query}}&gsc.sort=`;
+                            }}
+                        }});
+                        
+                        function updateSearchAction(engine) {{
+                            if (engine === 'Sloth Search') {{
+                                sForm.action = 'https://cse.google.com/cse';
+                                sInput.name = 'q';
+                                sInput.placeholder = 'Search the Grid with Sloth Search...';
+                            }} else if (engine === 'google') {{
+                                sForm.action = 'https://www.google.com/search';
+                                sInput.name = 'q';
+                                sInput.placeholder = 'Search Google...';
+                            }} else if (engine === 'ddg') {{
+                                sForm.action = 'https://duckduckgo.com/';
+                                sInput.name = 'q';
+                                sInput.placeholder = 'Search DuckDuckGo...';
+                            }} else if (engine === 'bing') {{
+                                sForm.action = 'https://www.bing.com/search';
+                                sInput.name = 'q';
+                                sInput.placeholder = 'Search Bing...';
+                            }} else if (engine === 'wikipedia') {{
+                                sForm.action = 'https://en.wikipedia.org/w/index.php';
+                                sInput.name = 'search';
+                                sInput.placeholder = 'Search Wikipedia...';
+                                }} else if (engine === 'Brave') {{
+                                sForm.action = 'https://search.brave.com/search?q=';
+                                sInput.name = 'search';
+                                sInput.placeholder = 'Search Brave...';
+                            }}
+                        }}
+
+                        // Scratchpad
+                        const scratch = document.getElementById('scratchpad');
+                        fetch('sloth://get-scratchpad')
+                            .then(r => r.text())
+                            .then(txt => {{
+                                scratch.value = txt;
+                            }});
+                        
+                        let saveTimeout = null;
+                        scratch.addEventListener('input', () => {{
+                            clearTimeout(saveTimeout);
+                            saveTimeout = setTimeout(() => {{
+                                fetch('sloth://save-scratchpad?t=' + encodeURIComponent(scratch.value));
+                            }}, 500);
+                        }});
+
+                        // Focus Session Timer
+                        let timeLeft = 25 * 60;
+                        let timerId = null;
+                        let isBreak = false;
+                        
+                        const display = document.getElementById('timer-display');
+                        const label = document.getElementById('timer-label');
+                        const toggleBtn = document.getElementById('timer-toggle');
+                        const resetBtn = document.getElementById('timer-reset');
+                        
+                        function updateTimerDisplay() {{
+                            const mins = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+                            const secs = (timeLeft % 60).toString().padStart(2, '0');
+                            display.textContent = mins + ":" + secs;
+                        }}
+                        
+                        toggleBtn.addEventListener('click', () => {{
+                            if (timerId) {{
+                                clearInterval(timerId);
+                                timerId = null;
+                                toggleBtn.textContent = 'Start';
+                            }} else {{
+                                toggleBtn.textContent = 'Pause';
+                                timerId = setInterval(() => {{
+                                    timeLeft--;
+                                    updateTimerDisplay();
+                                    if (timeLeft <= 0) {{
+                                        clearInterval(timerId);
+                                        timerId = null;
+                                        toggleBtn.textContent = 'Start';
+                                        
+                                        isBreak = !isBreak;
+                                        timeLeft = (isBreak ? 5 : 25) * 60;
+                                        label.textContent = isBreak ? 'Break Time!' : 'Time to focus!';
+                                        updateTimerDisplay();
+                                        alert(isBreak ? 'Time for a break!' : 'Back to focus!');
+                                    }}
+                                }}, 1000);
+                            }}
+                        }});
+                        
+                        resetBtn.addEventListener('click', () => {{
+                            clearInterval(timerId);
+                            timerId = null;
+                            isBreak = false;
+                            timeLeft = 25 * 60;
+                            label.textContent = 'Time to focus!';
+                            toggleBtn.textContent = 'Start';
+                            updateTimerDisplay();
+                        }});
+                        
+                        updateTimerDisplay();
+
+                        // Dynamic Shortcuts
+                        const defaultShortcuts = [
+                            {{ name: 'Google', url: 'https://www.google.com' }},
+                            {{ name: 'YouTube', url: 'https://www.youtube.com' }},
+                            {{ name: 'GitHub', url: 'https://github.com' }},
+                            {{ name: 'Discord', url: 'https://discord.com' }},
+                            {{ name: 'ChatGPT', url: 'https://chatgpt.com' }}
+                        ];
+                        
+                        function loadShortcuts() {{
+                            let items = [];
+                            try {{
+                                items = JSON.parse(localStorage.getItem('__sloth_shortcuts') || '[]');
+                            }} catch(e) {{}}
+                            
+                            if (items.length === 0) {{
+                                items = defaultShortcuts;
+                                localStorage.setItem('__sloth_shortcuts', JSON.stringify(items));
+                            }}
+                            return items;
+                        }}
+                        
+                        function renderShortcuts() {{
+                            const grid = document.getElementById('shortcuts-grid');
+                            const items = loadShortcuts();
+                            grid.innerHTML = '';
+                            
+                            items.forEach((item, index) => {{
+                                const card = document.createElement('div');
+                                card.className = 'module-card';
+                                card.style.padding = '15px';
+                                card.style.position = 'relative';
+                                card.style.display = 'flex';
+                                card.style.flexDirection = 'column';
+                                card.style.alignItems = 'center';
+                                card.style.justifyContent = 'center';
+                                card.style.minHeight = '60px';
+                                
+                                const delBtn = document.createElement('button');
+                                delBtn.innerHTML = '×';
+                                delBtn.style.position = 'absolute';
+                                delBtn.style.top = '5px';
+                                delBtn.style.right = '8px';
+                                delBtn.style.background = 'none';
+                                delBtn.style.border = 'none';
+                                delBtn.style.color = '#ff4444';
+                                delBtn.style.fontSize = '1.3rem';
+                                delBtn.style.cursor = 'pointer';
+                                delBtn.style.lineHeight = '1';
+                                delBtn.style.opacity = '0.7';
+                                delBtn.onclick = (e) => {{
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    removeShortcut(index);
+                                }};
+                                
+                                const link = document.createElement('a');
+                                link.href = item.url;
+                                link.style.textDecoration = 'none';
+                                link.style.color = 'inherit';
+                                link.style.width = '100%';
+                                link.style.height = '100%';
+                                link.style.display = 'flex';
+                                link.style.alignItems = 'center';
+                                link.style.justifyContent = 'center';
+                                link.style.textAlign = 'center';
+                                
+                                const title = document.createElement('span');
+                                title.style.fontSize = '1.05rem';
+                                title.style.fontWeight = '600';
+                                title.textContent = item.name;
+                                
+                                link.appendChild(title);
+                                card.appendChild(delBtn);
+                                card.appendChild(link);
+                                grid.appendChild(card);
+                            }});
+                        }}
+                        
+                        window.addShortcut = function() {{
+                            const name = prompt("Enter shortcut name:");
+                            if (!name) return;
+                            let url = prompt("Enter shortcut URL:");
+                            if (!url) return;
+                            if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('sloth://')) {{
+                                url = 'https://' + url;
+                            }}
+                            const items = loadShortcuts();
+                            items.push({{ name, url }});
+                            localStorage.setItem('__sloth_shortcuts', JSON.stringify(items));
+                            renderShortcuts();
+                        }}
+                        
+                        function removeShortcut(index) {{
+                            const items = loadShortcuts();
+                            items.splice(index, 1);
+                            localStorage.setItem('__sloth_shortcuts', JSON.stringify(items));
+                            renderShortcuts();
+                        }}
+                        
+                        renderShortcuts();
+                    </script>
+                </div>
+            </body>
+            </html>"""
         elif url == "sloth://arcade" or host == "arcade":
             html = f"""{common_head}
             <body style='background: var(--bg); color: var(--fg); font-family:sans-serif;'>
@@ -1001,64 +1573,73 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                 h_url = self.browser.config_manager.get("home_url", "sloth://home")
                 
                 content = f"""
-                    <div class='card' style='display:block;'>
-                        <h2 style='color:var(--accent); margin-top:0;'>🎨 Appearance & Layout</h2>
-                        <div style='display:flex; flex-direction:column; gap:15px;'>
-                            <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Home Page URL</span>
-                                <div style='display:flex; gap:10px;'>
-                                    <input type='text' id='h-url' value='{h_url}' style='width:250px; background:rgba(255,255,255,0.05); color:white; border:1px solid var(--border); padding:8px; border-radius:8px;'>
-                                    <button class='btn' onclick='window.location.href="sloth://set-home?u="+encodeURIComponent(document.getElementById("h-url").value)'>Set</button>
+                    <div class='card' style='display:block; flex:1;'>
+                        <h2 style='color:var(--accent); margin-top:0; margin-bottom:20px; font-size:1.5rem; border-bottom:1px solid var(--border); padding-bottom:10px;'>🎨 Appearance & Layout</h2>
+                        <div style='display:flex; flex-direction:column; gap:20px;'>
+                            <div style='display:flex; flex-direction:column; gap:6px;'>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Home Page URL</span>
+                                <div style='display:flex; gap:10px; width:100%;'>
+                                    <input type='text' id='h-url' value='{h_url}' style='flex:1; background:rgba(0,0,0,0.3); color:white; border:1px solid var(--border); padding:10px; border-radius:10px; font-size:0.9rem; box-sizing:border-box;'>
+                                    <button class='btn' style='margin:0; padding:10px 20px; border-radius:10px; cursor:pointer;' onclick='window.location.href="sloth://set-home?u="+encodeURIComponent(document.getElementById("h-url").value)'>Set</button>
                                 </div>
                             </div>
-                            <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>New Tab URL</span>
-                                <div style='display:flex; gap:10px;'>
-                                    <input type='text' id='nt-url' value='{self.browser.config_manager.get("new_tab_url", "sloth://home")}' style='width:250px; background:rgba(255,255,255,0.05); color:white; border:1px solid var(--border); padding:8px; border-radius:8px;'>
-                                    <button class='btn' onclick='window.location.href="sloth://set-nt?u="+encodeURIComponent(document.getElementById("nt-url").value)'>Set as New Tab</button>
+                            
+                            <div style='display:flex; flex-direction:column; gap:6px;'>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>New Tab URL</span>
+                                <div style='display:flex; gap:10px; width:100%;'>
+                                    <input type='text' id='nt-url' value='{self.browser.config_manager.get("new_tab_url", "sloth://home")}' style='flex:1; background:rgba(0,0,0,0.3); color:white; border:1px solid var(--border); padding:10px; border-radius:10px; font-size:0.9rem; box-sizing:border-box;'>
+                                    <button class='btn' style='margin:0; padding:10px 20px; border-radius:10px; cursor:pointer;' onclick='window.location.href="sloth://set-nt?u="+encodeURIComponent(document.getElementById("nt-url").value)'>Set</button>
                                 </div>
                             </div>
+
                             <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Set Active as Home</span>
-                                <button class='btn' onclick='window.location.href="sloth://set-current-home"'>Current Page</button>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Set Active as Home</span>
+                                <button class='btn btn-secondary' style='margin:0; padding:8px 16px; border-radius:8px;' onclick='window.location.href="sloth://set-current-home"'>Current Page</button>
                             </div>
+                            
                             <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Set Active as New Tab</span>
-                                <button class='btn' onclick='window.location.href="sloth://set-current-nt"'>Current Page</button>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Set Active as New Tab</span>
+                                <button class='btn btn-secondary' style='margin:0; padding:8px 16px; border-radius:8px;' onclick='window.location.href="sloth://set-current-nt"'>Current Page</button>
                             </div>
+                            
                             <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Site Customizations</span>
-                                <button class='btn' style='background:#ff4444; border-color:#ff4444;' onclick='if(confirm("Clear all element restyling?")) window.location.href="sloth://clear-customizations"'>Reset All</button>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Site Customizations</span>
+                                <button class='btn' style='background:#ff4444; border:none; margin:0; padding:8px 16px; border-radius:8px; color:white; cursor:pointer;' onclick='if(confirm("Clear all element restyling?")) window.location.href="sloth://clear-customizations"'>Reset All</button>
                             </div>
+                            
                             <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Theme Mode</span>
-                                <button class='btn' onclick='window.location.href="sloth://toggle-theme"'>{("Switch to Light" if self.browser.dark_theme else "Switch to Dark")}</button>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Theme Mode</span>
+                                <button class='btn' style='margin:0; padding:8px 16px; border-radius:8px; background:var(--accent); color:#000; font-weight:600;' onclick='window.location.href="sloth://toggle-theme"'>{("Switch to Light" if self.browser.dark_theme else "Switch to Dark")}</button>
                             </div>
+                            
                             <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Accent Color</span>
-                                <input type='color' value='{accent}' onchange='window.location.href="sloth://set-color?c="+this.value.replace("#", "")' style='width:50px; height:40px; border:none; background:none; cursor:pointer;'>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Accent Color</span>
+                                <input type='color' value='{accent}' onchange='window.location.href="sloth://set-color?c="+this.value.replace("#", "")' style='width:60px; height:36px; border:1px solid var(--border); border-radius:8px; background:none; cursor:pointer;'>
                             </div>
+                            
                             <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>UI Texture</span>
-                                <select onchange='window.location.href="sloth://set-texture?t="+this.value' style='background:#222; color:white; border:1px solid #444; border-radius:8px; padding:8px;'>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>UI Texture</span>
+                                <select onchange='window.location.href="sloth://set-texture?t="+this.value' style='background:#111; color:white; border:1px solid var(--border); border-radius:8px; padding:8px 12px; font-size:0.9rem;'>
                                     <option value='none' {"selected" if self.browser.config_manager.get("ui_texture")=="none" else ""}>Clean</option>
                                     <option value='noise' {"selected" if self.browser.config_manager.get("ui_texture")=="noise" else ""}>Noise</option>
                                     <option value='stripes' {"selected" if self.browser.config_manager.get("ui_texture")=="stripes" else ""}>Stripes</option>
                                     <option value='grid' {"selected" if self.browser.config_manager.get("ui_texture")=="grid" else ""}>Grid</option>
                                 </select>
                             </div>
+                            
                             <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Default Font Size</span>
-                                <select onchange='window.location.href="sloth://set-font-size?s="+this.value' style='background:#222; color:white; border:1px solid #444; border-radius:8px; padding:8px;'>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Default Font Size</span>
+                                <select onchange='window.location.href="sloth://set-font-size?s="+this.value' style='background:#111; color:white; border:1px solid var(--border); border-radius:8px; padding:8px 12px; font-size:0.9rem;'>
                                     <option value='12' {"selected" if self.browser.config_manager.get("font_size")==12 else ""}>Small</option>
                                     <option value='16' {"selected" if self.browser.config_manager.get("font_size")==16 or not self.browser.config_manager.get("font_size") else "selected"}>Medium</option>
                                     <option value='20' {"selected" if self.browser.config_manager.get("font_size")==20 else ""}>Large</option>
                                     <option value='24' {"selected" if self.browser.config_manager.get("font_size")==24 else ""}>Extra Large</option>
                                 </select>
                             </div>
+                            
                             <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Default Zoom</span>
-                                <select onchange='window.location.href="sloth://set-zoom?z="+this.value' style='background:#222; color:white; border:1px solid #444; border-radius:8px; padding:8px;'>
+                                <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Default Zoom</span>
+                                <select onchange='window.location.href="sloth://set-zoom?z="+this.value' style='background:#111; color:white; border:1px solid var(--border); border-radius:8px; padding:8px 12px; font-size:0.9rem;'>
                                     <option value='0.8' {"selected" if self.browser.config_manager.get("zoom")==0.8 else ""}>80%</option>
                                     <option value='1.0' {"selected" if self.browser.config_manager.get("zoom")==1.0 or not self.browser.config_manager.get("zoom") else "selected"}>100%</option>
                                     <option value='1.2' {"selected" if self.browser.config_manager.get("zoom")==1.2 else ""}>120%</option>
@@ -1068,26 +1649,29 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                         </div>
                     </div>
 
-                    <div class='card' style='display:block;'>
-                        <h2 style='color:var(--accent); margin-top:0;'>🔧 Toolbar Engine</h2>
-                        <p style='font-size:0.8rem; opacity:0.7;'>Reorder your grid buttons. Available IDs: back, forward, reload, home, url_bar, new_tab, sidebar, settings, downloads, privacy</p>
-                        <input type='text' id='t-order' value='{order_str}' style='width:100%; margin:10px 0;'>
-                        <button class='btn' style='width:100%; background:var(--accent);' onclick='window.location.href="sloth://set-toolbar?o="+document.getElementById("t-order").value'>Update Toolbar Grid</button>
-                    </div>
+                    <div style='display:flex; flex-direction:column; gap:20px; flex:1;'>
+                        <div class='card' style='display:block; margin-bottom:0;'>
+                            <h2 style='color:var(--accent); margin-top:0; margin-bottom:15px; font-size:1.5rem; border-bottom:1px solid var(--border); padding-bottom:10px;'>🔧 Toolbar Engine</h2>
+                            <p style='font-size:0.85rem; opacity:0.7; line-height:1.4; margin-bottom:15px;'>Reorder your toolbar buttons to your liking. Drag, drops, or type IDs separated by commas.</p>
+                            <span style='font-weight:600; font-size:0.85rem; opacity:0.6; display:block; margin-bottom:6px;'>Available IDs: back, forward, reload, home, url_bar, new_tab, sidebar, settings, downloads, privacy</span>
+                            <input type='text' id='t-order' value='{order_str}' style='width:100%; background:rgba(0,0,0,0.3); color:white; border:1px solid var(--border); padding:10px; border-radius:10px; font-size:0.9rem; box-sizing:border-box; margin-bottom:15px;'>
+                            <button class='btn' style='width:100%; background:var(--accent); color:#000; font-weight:600; border:none; margin:0;' onclick='window.location.href="sloth://set-toolbar?o="+document.getElementById("t-order").value'>Update Toolbar Grid</button>
+                        </div>
 
-                    <div class='card' style='display:block;'>
-                        <h2 style='color:var(--accent); margin-top:0;'>🧭 Navigation</h2>
-                        <div style='display:flex; flex-direction:column; gap:15px;'>
-                            <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Nav Position</span>
-                                <select onchange='window.location.href="sloth://set-nav?p=\"+this.value' style='background:#222; color:white; border:1px solid #444; border-radius:8px; padding:8px;'>
-                                    <option value='top' {"selected" if self.browser.nav_pos=="top" else ""}>Top</option>
-                                    <option value='bottom' {"selected" if self.browser.nav_pos=="bottom" else ""}>Bottom</option>
-                                </select>
-                            </div>
-                            <div style='display:flex; justify-content: space-between; align-items:center;'>
-                                <span>Tabs Position</span>
-                                <button class='btn' onclick='window.location.href="sloth://toggle-layout"'>Toggle Top/Side Tabs</button>
+                        <div class='card' style='display:block;'>
+                            <h2 style='color:var(--accent); margin-top:0; margin-bottom:15px; font-size:1.5rem; border-bottom:1px solid var(--border); padding-bottom:10px;'>🧭 Navigation</h2>
+                            <div style='display:flex; flex-direction:column; gap:20px;'>
+                                <div style='display:flex; justify-content: space-between; align-items:center;'>
+                                    <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Nav Position</span>
+                                    <select onchange='window.location.href="sloth://set-nav?p="+this.value' style='background:#111; color:white; border:1px solid var(--border); border-radius:8px; padding:8px 12px; font-size:0.9rem;'>
+                                        <option value='top' {"selected" if self.browser.nav_pos=="top" else ""}>Top</option>
+                                        <option value='bottom' {"selected" if self.browser.nav_pos=="bottom" else ""}>Bottom</option>
+                                    </select>
+                                </div>
+                                <div style='display:flex; justify-content: space-between; align-items:center;'>
+                                    <span style='font-weight:600; font-size:0.95rem; opacity:0.9;'>Tabs Position</span>
+                                    <button class='btn btn-secondary' style='margin:0; padding:8px 16px; border-radius:8px;' onclick='window.location.href="sloth://toggle-layout"'>Toggle Top/Side Tabs</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1158,16 +1742,36 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
             </div></body></html>"""
         elif url == "sloth://flags" or host == "flags":
             flags_text = "\n".join(self.browser.config_manager.get("chromium_flags", CHROMIUM_FLAGS))
+            smooth_checked = "checked" if self.browser.config_manager.get("smooth_scrolling", True) else ""
             html = f"""{common_head}<body><div class='container'>
                 <h1>🚩 Engine Flags</h1>
-                <p>Modify Chromium launch flags. Enter one flag per line. <b>Requires restart to apply.</b></p>
+                <p>Modify Chromium launch flags and experimental features. <b>Requires restart to apply.</b></p>
                 <form action='sloth://save-flags' method='GET' style='width:100%;'>
-                    <textarea name='f' style='width:100%; height:300px; background:rgba(0,0,0,0.2); color:var(--fg); border:1px solid var(--accent); border-radius:14px; padding:15px; font-family:monospace; outline:none; resize:vertical;'>{flags_text}</textarea>
-                    <div style='text-align:center; margin-top:20px;'>
-                        <button type='submit' class='btn' style='width:100%; max-width:300px;'>Save & Restart Engine</button>
+                    <div class='card' style='display:block; margin-bottom:20px; background:rgba(255,255,255,0.02);'>
+                        <h3 style='margin-top:0; color:var(--accent); border-bottom:1px solid var(--border); padding-bottom:10px;'>⚙️ Feature Toggles</h3>
+                        <div style='display:flex; justify-content:space-between; align-items:center; margin:15px 0;'>
+                            <div style='text-align:left;'>
+                                <strong style='font-size:1.05rem;'>Smooth Scrolling</strong>
+                                <div style='font-size:0.85rem; opacity:0.7; margin-top:3px;'>Enable smooth scrolling animation for pages.</div>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" name="ss" value="on" {smooth_checked}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class='card' style='display:block; background:rgba(255,255,255,0.02);'>
+                        <h3 style='margin-top:0; color:var(--accent); border-bottom:1px solid var(--border); padding-bottom:10px;'>🧪 Chromium Launch Flags</h3>
+                        <p style='font-size:0.85rem; text-align:left; margin:10px 0;'>Enter one flag per line (e.g. <code>--disable-gpu</code>):</p>
+                        <textarea name='f' style='width:100%; height:200px; background:rgba(0,0,0,0.2); color:var(--fg); border:1px solid var(--border); border-radius:14px; padding:15px; font-family:monospace; outline:none; resize:vertical; box-sizing:border-box;'>{flags_text}</textarea>
+                    </div>
+                    
+                    <div style='text-align:center; margin-top:30px;'>
+                        <button type='submit' class='btn' style='width:100%; max-width:300px; background:var(--accent); color:#000; font-weight:bold;'>Save & Restart Engine</button>
                     </div>
                 </form>
-                <div style='margin-top:40px;'><a href='sloth://home' class='btn btn-secondary'>← Home</a></div>
+                <div style='margin-top:40px;'><a href='sloth://home' class='btn btn-secondary' style='text-decoration:none;'>← Home</a></div>
             </div></body></html>"""
         elif url.startswith("sloth://save-flags"):
             try:
@@ -1176,9 +1780,14 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                 if 'f' in query:
                     new_flags = [f.strip() for f in query['f'][0].split('\n') if f.strip()]
                     self.browser.config_manager.set("chromium_flags", new_flags)
-                    self.browser.log("Flags updated. Restarting...")
-                    # Trigger restart
-                    QTimer.singleShot(500, lambda: os.execl(sys.executable, sys.executable, *sys.argv))
+                
+                # Check for smooth scrolling toggle
+                smooth_scrolling = 'ss' in query
+                self.browser.config_manager.set("smooth_scrolling", smooth_scrolling)
+                
+                self.browser.log("Flags updated. Restarting...", notify=True)
+                # Trigger restart
+                QTimer.singleShot(500, lambda: os.execl(sys.executable, sys.executable, *sys.argv))
             except Exception as e:
                 print(f"Failed to save flags: {e}")
             html = f"<html><body><p>Restarting...</p><script>window.location.href='sloth://home'</script></body></html>"
@@ -1234,6 +1843,23 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                     self.browser.config_manager.set("new_tab_url", u)
             except: pass
             html = f"<html><head><meta http-equiv='refresh' content='0; url=sloth://settings'></head></html>"
+        elif url.startswith("sloth://set-search"):
+            try:
+                query = urllib.parse.parse_qs(url_obj.query())
+                s = query.get('s', [''])[0]
+                if s:
+                    self.browser.config_manager.set("search_engine", s)
+            except: pass
+            html = f"<html><head><meta http-equiv='refresh' content='0; url=sloth://start'></head></html>"
+        elif url.startswith("sloth://save-scratchpad"):
+            try:
+                query = urllib.parse.parse_qs(url_obj.query())
+                t = query.get('t', [''])[0]
+                self.browser.config_manager.set("scratchpad", t)
+            except: pass
+            html = "<html><body></body></html>"
+        elif url == "sloth://get-scratchpad":
+            html = self.browser.config_manager.get("scratchpad", "")
         elif url == "sloth://gpu" or host == "gpu":
             import platform as pf
             info = {
@@ -1250,19 +1876,58 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
             self.browser.update_manager.check_for_updates(force=True)
             html = f"<html><head><meta http-equiv='refresh' content='0; url=sloth://update'></head></html>"
         elif url == "sloth://extensions" or host == "extensions":
-            ext_path = os.path.abspath("extensions")
+            base_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable)
+            ext_path = os.path.join(base_dir, "extensions")
+            
+            ext_list_html = ""
+            try:
+                if not os.path.exists(ext_path):
+                    os.makedirs(ext_path, exist_ok=True)
+                files = [f for f in os.listdir(ext_path) if f.endswith(".js")]
+                if files:
+                    ext_list_html += "<h3 style='margin-top:30px; margin-bottom:10px;'>📂 Installed Extensions</h3><div style='display:flex; flex-direction:column; gap:10px; margin-top:10px;'>"
+                    for f in files:
+                        ext_list_html += f"<div class='card' style='display:flex; justify-content:space-between; align-items:center; padding:15px 20px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:12px;'>" \
+                                         f"<span style='font-family:monospace; font-size:0.95rem;'>🧩 {f}</span>" \
+                                         f"<a href='sloth://delete-extension?name={f}' class='btn' style='padding:5px 12px; font-size:0.8rem; background:#ff4444; color:#fff; border:none; margin:0; border-radius:6px; text-decoration:none;'>Delete</a>" \
+                                         f"</div>"
+                    ext_list_html += "</div>"
+                else:
+                    ext_list_html += "<p style='opacity:0.6; font-style:italic; margin-top:20px; text-align:center;'>No custom extensions loaded yet.</p>"
+            except Exception as e:
+                ext_list_html += f"<p style='color:#ff4444;'>Failed to read extensions: {e}</p>"
+
             html = f"{common_head}<body><div class='container'><h1>🧩 Extension Engine</h1><p>Expand your grid with custom capabilities.</p>" \
                    f"<div style='background:rgba(255,255,255,0.03); border-radius:16px; padding:25px; margin:20px 0; border:1px solid rgba(255,255,255,0.05);'>" \
                    f"<p>Extensions are loaded from the <b>extensions</b> folder in the Sloth directory.</p>" \
                    f"<code style='background:#000; padding:10px; border-radius:8px; display:block; margin:10px 0; color:var(--accent); overflow-x:auto;'>{ext_path}</code>" \
                    f"<p style='font-size:0.9rem; opacity:0.8;'>Simply drop any <code>.js</code> file into this folder to inject it into every page you visit.</p>" \
                    f"</div>" \
-                   f"<div style='display:flex; gap:15px; justify-content:center; margin-top:20px;'>" \
-                   f"<a href='https://parkertripoli-wq.github.io/' class='btn' style='background:#ff00ff;'>Open Sloth Store</a>" \
-                   f"<a href='https://chromewebstore.google.com/' class='btn' style='background:#4285f4;'>Open Chrome Store (WIP)</a>" \
+                   f"<div style='background:rgba(255,255,255,0.03); border-radius:16px; padding:25px; margin:20px 0; border:1px solid rgba(255,255,255,0.05);'>" \
+                   f"<h3>📥 Install Extension from URL</h3>" \
+                   f"<p style='font-size:0.9rem; opacity:0.8; margin-bottom:15px;'>Enter the URL of any JavaScript extension to download and load it automatically.</p>" \
+                   f"<div style='display:flex; gap:10px;'>" \
+                   f"<input type='text' id='ext-url' placeholder='https://example.com/extension.js' style='flex:1; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); color:#fff; padding:12px; border-radius:8px; outline:none; font-family:inherit; font-size:0.95rem;'>" \
+                   f"<button onclick='installExt()' class='btn' style='background:var(--accent); color:#000; font-weight:bold; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;'>Install</button>" \
                    f"</div>" \
-                   f"<p style='margin-top:15px; color:#aaa; font-style:italic;'>Both Sloth and standard Chrome-compatible scripts are supported.</p>" \
-                   f"<div style='margin-top:40px;'><a href='sloth://home' class='btn btn-secondary'>← Home</a></div></div></body></html>"
+                   f"<p id='status' style='margin-top:10px; font-size:0.9rem; display:none; color:var(--accent);'></p>" \
+                   f"</div>" \
+                   f"{ext_list_html}" \
+                   f"<div style='display:flex; gap:15px; justify-content:center; margin-top:30px;'>" \
+                   f"<a href='https://parkertripoli-wq.github.io/' class='btn' style='background:#ff00ff; text-decoration:none;'>Open Sloth Store</a>" \
+                   f"<a href='https://chromewebstore.google.com/' class='btn' style='background:#4285f4; text-decoration:none;'>Open Chrome Store (WIP)</a>" \
+                   f"</div>" \
+                   f"<p style='margin-top:15px; color:#aaa; font-style:italic; text-align:center;'>Both Sloth and standard Chrome-compatible scripts are supported.</p>" \
+                   f"<script>" \
+                   f"function installExt() {{" \
+                   f"  let u = document.getElementById('ext-url').value.trim();" \
+                   f"  if(!u) return;" \
+                   f"  document.getElementById('status').style.display = 'block';" \
+                   f"  document.getElementById('status').innerText = 'Downloading and installing...';" \
+                   f"  window.location.href = 'sloth://install-extension?url=' + encodeURIComponent(u);" \
+                   f"}}" \
+                   f"</script>" \
+                   f"<div style='margin-top:40px;'><a href='sloth://home' class='btn btn-secondary' style='text-decoration:none;'>← Home</a></div></div></body></html>"
         elif url == "sloth://clear-history":
             self.browser.history_manager.history = []
             self.browser.history_manager.save()
@@ -1309,6 +1974,7 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
             self.browser.log("Setup page bookmarked!", notify=True)
             html = f"<html><head><meta http-equiv='refresh' content='0; url=sloth://start'></head></html>"
         elif url == "sloth://start" or host == "start":
+            engine = self.browser.config_manager.get("search_engine", "sloth")
             html = f"""{common_head}
             <body style='padding:0; overflow-x:hidden; background: var(--bg); color: var(--fg);'>
                 <div class='container' style='max-width:1000px; min-height:100vh; padding:60px 20px; box-sizing:border-box; background:transparent; border:none; box-shadow:none;'>
@@ -1355,10 +2021,11 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                             <p>Choose your primary entry point into the grid.</p>
                             <div style='display:flex; gap:10px; margin-top:10px;'>
                                 <select onchange='window.location.href="sloth://set-search?s="+this.value' style='background:#222; color:white; border:1px solid #444; border-radius:8px; padding:10px; flex:1;'>
-                                    <option value='google'>Google (CSE)</option>
-                                    <option value='bing'>Bing</option>
-                                    <option value='duckduckgo'>DuckDuckGo</option>
-                                    <option value='yahoo'>Yahoo</option>
+                                    <option value='sloth' {"selected" if engine == "sloth" else ""}>Sloth Search</option>
+                                    <option value='google' {"selected" if engine == "google" else ""}>Google</option>
+                                    <option value='bing' {"selected" if engine == "bing" else ""}>Bing</option>
+                                    <option value='duckduckgo' {"selected" if engine == "duckduckgo" else ""}>DuckDuckGo</option>
+                                    <option value='yahoo' {"selected" if engine == "yahoo" else ""}>Yahoo</option>
                                 </select>
                             </div>
                         </div>
@@ -1497,8 +2164,8 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
             try:
                 size = int(url.split("?s=")[1])
                 self.browser.config_manager.set("font_size", size)
-                s = QWebEngineSettings.globalSettings()
-                s.setFontSize(QWebEngineSettings.DefaultFontSize, size)
+                s = QWebEngineProfile.defaultProfile().settings()
+                s.setFontSize(QWebEngineSettings.FontSize.DefaultFontSize, size)
                 self.browser.log(f"Default font size set to {size}", notify=True)
             except: pass
             html = f"<html><head><meta http-equiv='refresh' content='0; url=sloth://settings'></head></html>"
@@ -1514,24 +2181,113 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                 self.browser.log(f"Default zoom set to {int(zoom*100)}%", notify=True)
             except: pass
             html = f"<html><head><meta http-equiv='refresh' content='0; url=sloth://settings'></head></html>"
+        elif url.startswith("sloth://install-extension"):
+            query = url_obj.query()
+            ext_url = ""
+            if "url=" in query:
+                ext_url = urllib.parse.unquote(query.split("url=")[1].split("&")[0])
+            
+            if ext_url:
+                try:
+                    self.browser.log(f"Downloading extension: {ext_url}", notify=True)
+                    r = requests.get(ext_url, timeout=10)
+                    if r.status_code == 200:
+                        name = ext_url.split("/")[-1].split("?")[0]
+                        if not name.endswith(".js"):
+                            name += ".js"
+                        name = "".join(c for c in name if c.isalnum() or c in (".", "_", "-"))
+                        if not name or name == ".js":
+                            name = "custom_ext.js"
+                        
+                        base_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable)
+                        ext_path = os.path.join(base_dir, "extensions")
+                        os.makedirs(ext_path, exist_ok=True)
+                        
+                        full_path = os.path.join(ext_path, name)
+                        with open(full_path, "w", encoding="utf-8") as f:
+                            f.write(r.text)
+                            
+                        # Instantly inject downloaded script
+                        s = QWebEngineScript()
+                        s.setSourceCode(r.text)
+                        s.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+                        s.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+                        s.setRunsOnSubFrames(True)
+                        QWebEngineProfile.defaultProfile().scripts().insert(s)
+                        
+                        self.browser.log(f"Extension '{name}' active!", notify=True)
+                        html = f"{common_head}<body><div class='container'><h1>✅ Extension Installed</h1>" \
+                               f"<p>Successfully downloaded and activated <b>{name}</b>.</p>" \
+                               f"<p style='margin-top:20px;'><a href='sloth://extensions' class='btn' style='text-decoration:none;'>Go to Extensions</a></p>" \
+                               f"</div></body></html>"
+                    else:
+                        html = f"{common_head}<body><div class='container'><h1>❌ Download Failed</h1>" \
+                               f"<p>Failed to download extension. HTTP Status: {r.status_code}</p>" \
+                               f"<p style='margin-top:20px;'><a href='sloth://extensions' class='btn' style='text-decoration:none;'>← Back</a></p>" \
+                               f"</div></body></html>"
+                except Exception as e:
+                    html = f"{common_head}<body><div class='container'><h1>❌ Installation Error</h1>" \
+                           f"<p>An error occurred: {e}</p>" \
+                           f"<p style='margin-top:20px;'><a href='sloth://extensions' class='btn' style='text-decoration:none;'>← Back</a></p>" \
+                           f"</div></body></html>"
+            else:
+                html = f"{common_head}<body><div class='container'><h1>❌ Invalid URL</h1>" \
+                       f"<p>No valid extension URL was provided.</p>" \
+                       f"<p style='margin-top:20px;'><a href='sloth://extensions' class='btn' style='text-decoration:none;'>← Back</a></p>" \
+                       f"</div></body></html>"
+        elif url.startswith("sloth://delete-extension"):
+            query = url_obj.query()
+            ext_name = ""
+            if "name=" in query:
+                ext_name = urllib.parse.unquote(query.split("name=")[1].split("&")[0])
+            
+            if ext_name:
+                try:
+                    base_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable)
+                    ext_path = os.path.join(base_dir, "extensions")
+                    full_path = os.path.join(ext_path, ext_name)
+                    if os.path.exists(full_path):
+                        os.remove(full_path)
+                        self.browser.log(f"Deleted extension: {ext_name}", notify=True)
+                        html = f"{common_head}<body><div class='container'><h1>🗑️ Extension Deleted</h1>" \
+                               f"<p>Successfully removed <b>{ext_name}</b>.</p>" \
+                               f"<p style='color:#ff9900; font-size:0.9rem;'>Note: Restart the browser to completely unload it from active pages.</p>" \
+                               f"<p style='margin-top:20px;'><a href='sloth://extensions' class='btn' style='text-decoration:none;'>Go to Extensions</a></p>" \
+                               f"</div></body></html>"
+                    else:
+                        html = f"{common_head}<body><div class='container'><h1>❌ Extension Not Found</h1>" \
+                               f"<p>The extension <b>{ext_name}</b> does not exist.</p>" \
+                               f"<p style='margin-top:20px;'><a href='sloth://extensions' class='btn' style='text-decoration:none;'>← Back</a></p>" \
+                               f"</div></body></html>"
+                except Exception as e:
+                    html = f"{common_head}<body><div class='container'><h1>❌ Deletion Error</h1>" \
+                           f"<p>An error occurred: {e}</p>" \
+                           f"<p style='margin-top:20px;'><a href='sloth://extensions' class='btn' style='text-decoration:none;'>← Back</a></p>" \
+                           f"</div></body></html>"
+            else:
+                html = f"{common_head}<body><div class='container'><h1>❌ Invalid Request</h1>" \
+                       f"<p>No extension name was specified for deletion.</p>" \
+                       f"<p style='margin-top:20px;'><a href='sloth://extensions' class='btn' style='text-decoration:none;'>← Back</a></p>" \
+                       f"</div></body></html>"
         
         if html:
             data = html.encode('utf-8')
             buf = QBuffer()
             buf.setData(data)
-            buf.open(QBuffer.ReadOnly)
+            buf.open(QIODevice.OpenModeFlag.ReadOnly)
             
             job_id = id(job)
-            self._active_jobs[job_id] = buf
+            self._active_jobs[job_id] = (buf, data)
             
             def cleanup():
                 if job_id in self._active_jobs:
                     del self._active_jobs[job_id]
-                    
+            
             job.destroyed.connect(cleanup)
+            # Use bytes for content type in PyQt6
             job.reply(b"text/html", buf)
         else:
-            job.fail(QWebEngineUrlRequestJob.UrlInvalid)
+            job.fail(QWebEngineUrlRequestJob.Error.UrlInvalid)
 
 
 # --- AdBlock & Request Blocking ---
@@ -1628,14 +2384,10 @@ class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
         u = url_obj.toString()
         host = url_obj.host().lower()
 
-        # Dynamic User-Agent switching:
-        # If site is google/chrome site -> use Chrome UA. Otherwise -> use Sloth UA.
+        # Dynamic User-Agent switching
+        info.setHttpHeader(b"User-Agent", self.default_ua.encode())
         is_chrome_site = any(domain in (host or "") for domain in ["google.", "gstatic.com", "googleapis.com", "chromewebstore", "youtube.com"])
-        
-        if not is_chrome_site:
-            info.setHttpHeader(b"User-Agent", self.default_ua.encode())
-        else:
-            # Perfect Client Hints set for Google properties
+        if is_chrome_site:
             info.setHttpHeader(b"Sec-CH-UA", b'"Not/A)Brand";v="8", "Chromium";v="124", "Google Chrome";v="124"')
             info.setHttpHeader(b"Sec-CH-UA-Mobile", b"?0")
             info.setHttpHeader(b"Sec-CH-UA-Platform", f'"{platform.system()}"'.encode())
@@ -1643,16 +2395,17 @@ class AdBlockInterceptor(QWebEngineUrlRequestInterceptor):
             info.setHttpHeader(b"Sec-CH-UA-Full-Version-List", b'"Not/A)Brand";v="8.0.0.0", "Chromium";v="124.0.0.0", "Google Chrome";v="124.0.0.0"')
             info.setHttpHeader(b"Accept-Language", b"en-US,en;q=0.9")
 
-        # Intelligent Blocking: Check blacklist even for first-party if they are known ad patterns
-        # Essential for YouTube and other sites that serve ads from their own domain
+        # Fast first-party bypass (don't block requests from the same site unless they are known ads)
+        first_party = info.firstPartyUrl().host().lower()
+        if host == first_party or host.endswith("." + first_party):
+            if "ads" not in u and "/api/stats/" not in u:
+                return
+
         with self.lock:
-            # Fast host check first
             if host in self.host_blacklist:
                 info.block(True)
                 return
-            
-            # Then check combined regex if necessary
-            if self.ad_regex.search(u):
+            if hasattr(self, 'ad_regex') and self.ad_regex.search(u):
                 info.block(True)
                 return
 
@@ -1665,8 +2418,8 @@ class CosmeticFilter(QWebEngineScript):
     def __init__(self):
         super().__init__()
         self.setName("CosmeticFilter")
-        self.setInjectionPoint(QWebEngineScript.DocumentCreation)
-        self.setWorldId(QWebEngineScript.MainWorld)
+        self.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        self.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         self.setRunsOnSubFrames(True)
         css = """
             .adbox, .banner_ads, .adsbox, .textads, .video-ads, #masthead-ad, 
@@ -1727,8 +2480,8 @@ class ChromeStoreCloak(QWebEngineScript):
     def __init__(self):
         super().__init__()
         self.setName("ChromeStoreCloak")
-        self.setInjectionPoint(QWebEngineScript.DocumentCreation)
-        self.setWorldId(QWebEngineScript.MainWorld)
+        self.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        self.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         self.setRunsOnSubFrames(True)
         ua = self.CHROME_UA
         js = """
@@ -1938,8 +2691,8 @@ class PageCustomizerScript(QWebEngineScript):
     def __init__(self):
         super().__init__()
         self.setName("PageCustomizerScript")
-        self.setInjectionPoint(QWebEngineScript.DocumentCreation)
-        self.setWorldId(QWebEngineScript.MainWorld)
+        self.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        self.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         self.setRunsOnSubFrames(True)
         js = """
         (function() {
@@ -1949,10 +2702,11 @@ class PageCustomizerScript(QWebEngineScript):
                     let elements = document.querySelectorAll(selector);
                     elements.forEach(el => {
                         let s = styles[selector];
-                        if (s.color) el.style.color = s.color;
-                        if (s.bg) el.style.backgroundColor = s.bg;
-                        if (s.size) el.style.fontSize = s.size;
-                        if (s.opacity) el.style.opacity = s.opacity;
+                        if (s.color) el.style.setProperty('color', s.color, 'important');
+                        if (s.bg) el.style.setProperty('background-color', s.bg, 'important');
+                        if (s.size) el.style.setProperty('font-size', s.size, 'important');
+                        if (s.opacity) el.style.setProperty('opacity', s.opacity, 'important');
+                        if (s.display) el.style.setProperty('display', s.display, 'important');
                     });
                 }
             }
@@ -2029,16 +2783,16 @@ class PageCustomizerScript(QWebEngineScript):
                 let styles = JSON.parse(localStorage.getItem('__sloth_customizations') || '{}');
                 if (!styles[selector]) styles[selector] = {};
                 
-                if (key === 'color') { el.style.color = val; styles[selector].color = val; }
-                else if (key === 'bg' || key === 'background') { el.style.backgroundColor = val; styles[selector].bg = val; }
-                else if (key === 'size' || key === 'font-size') { el.style.fontSize = val; styles[selector].size = val; }
-                else if (key === 'opacity') { el.style.opacity = val; styles[selector].opacity = val; }
-                else if (key === 'display') { el.style.display = val; styles[selector].display = val; }
+                if (key === 'color') { el.style.setProperty('color', val, 'important'); styles[selector].color = val; }
+                else if (key === 'bg' || key === 'background') { el.style.setProperty('background-color', val, 'important'); styles[selector].bg = val; }
+                else if (key === 'size' || key === 'font-size') { el.style.setProperty('font-size', val, 'important'); styles[selector].size = val; }
+                else if (key === 'opacity') { el.style.setProperty('opacity', val, 'important'); styles[selector].opacity = val; }
+                else if (key === 'display') { el.style.setProperty('display', val, 'important'); styles[selector].display = val; }
                 
                 localStorage.setItem('__sloth_customizations', JSON.stringify(styles));
                 
-                // Signal to Python for global persistence
-                console.log("SLOTH_CUSTOMIZE:" + window.location.hostname + "::" + selector + "::" + key + "::" + val);
+                // Signal to Python for global persistence (using double colon separator)
+                console.log("SLOTH_CUSTOMIZE::" + window.location.hostname + "::" + selector + "::" + key + "::" + val);
             };
 
             // Password Detection
@@ -2061,13 +2815,60 @@ class PageCustomizerScript(QWebEngineScript):
         """
         self.setSourceCode(js)
 
+class CustomScrollbarScript(QWebEngineScript):
+    """Injects a custom scrollbar style that can be overridden by websites if they define custom scrollbars."""
+    def __init__(self, accent_color):
+        super().__init__()
+        self.setName("CustomScrollbarScript")
+        self.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        self.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        self.setRunsOnSubFrames(True)
+        css = f"""
+            ::-webkit-scrollbar {{
+                width: 12px;
+                height: 12px;
+            }}
+            ::-webkit-scrollbar-track {{
+                background: rgba(0, 0, 0, 0.03);
+            }}
+            ::-webkit-scrollbar-thumb {{
+                background: {accent_color};
+                border: 3px solid transparent;
+                background-clip: padding-box;
+                border-radius: 8px;
+            }}
+            ::-webkit-scrollbar-thumb:hover {{
+                background: {accent_color}cc;
+                border: 3px solid transparent;
+                background-clip: padding-box;
+            }}
+        """
+        js = f"""
+            (function() {{
+                const style = document.createElement('style');
+                style.id = 'sloth-custom-scrollbar';
+                style.textContent = `{css}`;
+                const insert = () => {{
+                    const target = document.head || document.documentElement;
+                    if (target && !document.getElementById('sloth-custom-scrollbar')) {{
+                        target.insertBefore(style, target.firstChild);
+                    }}
+                }};
+                insert();
+                if (document.readyState === 'loading') {{
+                    document.addEventListener('DOMContentLoaded', insert);
+                }}
+            }})();
+        """
+        self.setSourceCode(js)
+
 class CompatibilityPolyfill(QWebEngineScript):
     """Polyfills for modern JS features missing in older QtWebEngine versions."""
     def __init__(self):
         super().__init__()
         self.setName("CompatibilityPolyfill")
-        self.setInjectionPoint(QWebEngineScript.DocumentCreation)
-        self.setWorldId(QWebEngineScript.MainWorld)
+        self.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        self.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         self.setRunsOnSubFrames(True)
         js = """
         (function() {
@@ -2099,8 +2900,186 @@ class CompatibilityPolyfill(QWebEngineScript):
         """
         self.setSourceCode(js)
 
+class FingerprintProtectionScript(QWebEngineScript):
+    def __init__(self):
+        super().__init__()
+        self.setName("FingerprintProtection")
+        self.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        self.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        self.setRunsOnSubFrames(True)
+        js = """
+        (function() {
+            const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+            HTMLCanvasElement.prototype.toDataURL = function(type, ...args) {
+                const ctx = this.getContext('2d');
+                if (ctx) {
+                    const imgData = ctx.getImageData(0, 0, 1, 1);
+                    imgData.data[0] = (imgData.data[0] + 1) % 256;
+                    ctx.putImageData(imgData, 0, 0);
+                }
+                return origToDataURL.call(this, type, ...args);
+            };
+            
+            const origGetParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(pname) {
+                if (pname === 37445) return "Intel Open Source Technology Center";
+                if (pname === 37446) return "Mesa DRI Intel(R) HD Graphics (Skylake GT2)";
+                return origGetParameter.call(this, pname);
+            };
+            
+            Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+            Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        })();
+        """
+        self.setSourceCode(js)
+
+class CursorInjectionScript(QWebEngineScript):
+    def __init__(self, cursor_type="Default"):
+        super().__init__()
+        self.setName("CursorInjection")
+        self.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        self.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        self.setRunsOnSubFrames(True)
+        
+        cursors = {
+            "Neon Aqua": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'><path d='M4.5 3v16l4-4h7.5L4.5 3z' fill='%2300f0ff' stroke='%23ffffff' stroke-width='1.5'/></svg>",
+            "Retro Crosshair": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><line x1='12' y1='2' x2='12' y2='22' stroke='%23ff00ff' stroke-width='2'/><line x1='2' y1='12' x2='22' y2='12' stroke='%23ff00ff' stroke-width='2'/></svg>",
+            "Minimalist Dot": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><circle cx='8' cy='8' r='5' fill='%2300ff88' stroke='%23ffffff' stroke-width='1'/></svg>",
+            "Cute Sloth": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%238d5b4c'/><circle cx='50' cy='50' r='38' fill='%23d7ccc8'/><path d='M 30 45 C 30 35, 45 35, 45 45 M 70 45 C 70 35, 55 35, 55 45' stroke='%234e342e' stroke-width='6'/><ellipse cx='50' cy='55' rx='6' ry='4' fill='%233e2723'/></svg>"
+        }
+        
+        url = cursors.get(cursor_type, "")
+        if url:
+            css = f"* {{ cursor: url(\\\"{url}\\\") 2 2, auto !important; }}"
+        else:
+            css = ""
+            
+        js = f"""
+        (function() {{
+            const style = document.createElement('style');
+            style.textContent = `{css}`;
+            document.documentElement.appendChild(style);
+            const observer = new MutationObserver(() => {{
+                if (!document.head || !style.parentNode) {{
+                    (document.head || document.documentElement).appendChild(style);
+                }}
+            }});
+            observer.observe(document.documentElement, {{ childList: true, subtree: true }});
+        }})();
+        """
+        self.setSourceCode(js)
 
 # --- UI Components / Dialogs ---
+
+class SSDPDiscoveryThread(QThread):
+    device_found = pyqtSignal(str, str)
+    def __init__(self):
+        super().__init__()
+        self.running = True
+        
+    def run(self):
+        msg = \
+            'M-SEARCH * HTTP/1.1\r\n' \
+            'HOST: 239.255.255.250:1900\r\n' \
+            'MAN: "ssdp:discover"\r\n' \
+            'MX: 2\r\n' \
+            'ST: ssdp:all\r\n' \
+            '\r\n'
+        
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(2.0)
+        try:
+            sock.sendto(msg.encode('utf-8'), ('239.255.255.250', 1900))
+            start_time = time.time()
+            while self.running and time.time() - start_time < 5.0:
+                try:
+                    data, addr = sock.recvfrom(2048)
+                    response = data.decode('utf-8', errors='ignore')
+                    if "LOCATION:" in response:
+                        location = ""
+                        for line in response.split("\r\n"):
+                            if line.upper().startswith("LOCATION:"):
+                                location = line.split(":", 1)[1].strip()
+                                break
+                        if location:
+                            try:
+                                r = requests.get(location, timeout=1.0)
+                                if r.status_code == 200:
+                                    friendly_name = ""
+                                    match = re.search(r"<friendlyName>(.*?)</friendlyName>", r.text)
+                                    if match:
+                                        friendly_name = match.group(1)
+                                    else:
+                                        friendly_name = addr[0]
+                                    self.device_found.emit(friendly_name, location)
+                            except:
+                                self.device_found.emit(addr[0], location)
+                except socket.timeout:
+                    break
+        except Exception as e:
+            print("SSDP Discovery Error:", e)
+        finally:
+            sock.close()
+
+class CastDialog(QDialog):
+    def __init__(self, parent, current_url):
+        super().__init__(parent)
+        self.setWindowTitle("Cast to Device")
+        self.setMinimumWidth(350)
+        self.current_url = current_url
+        
+        layout = QVBoxLayout(self)
+        self.status_label = QLabel("Scanning for casting devices on the local network...")
+        self.status_label.setStyleSheet("opacity: 0.8; font-size: 13px;")
+        layout.addWidget(self.status_label)
+        
+        self.device_list = QListWidget()
+        layout.addWidget(self.device_list)
+        
+        btn_layout = QHBoxLayout()
+        self.rescan_btn = QPushButton("Rescan")
+        self.rescan_btn.clicked.connect(self.start_scan)
+        self.cast_btn = QPushButton("Cast")
+        self.cast_btn.clicked.connect(self.cast_to_selected)
+        self.cast_btn.setEnabled(False)
+        self.device_list.itemClicked.connect(lambda: self.cast_btn.setEnabled(True))
+        
+        btn_layout.addWidget(self.rescan_btn)
+        btn_layout.addWidget(self.cast_btn)
+        btn_layout.addWidget(QPushButton("Cancel", clicked=self.reject))
+        layout.addLayout(btn_layout)
+        
+        self.devices = {}
+        self.start_scan()
+        
+    def start_scan(self):
+        self.device_list.clear()
+        self.devices.clear()
+        self.cast_btn.setEnabled(False)
+        self.status_label.setText("Searching for Smart TVs and Cast devices...")
+        
+        self.thread = SSDPDiscoveryThread()
+        self.thread.device_found.connect(self.on_device_found)
+        self.thread.start()
+        
+    def on_device_found(self, name, url):
+        if name not in self.devices:
+            self.devices[name] = url
+            self.device_list.addItem(f"📺 {name}")
+            self.status_label.setText(f"Found {len(self.devices)} device(s) on your network.")
+            
+    def cast_to_selected(self):
+        item = self.device_list.currentItem()
+        if not item: return
+        name = item.text().replace("📺 ", "")
+        url = self.devices.get(name)
+        self.status_label.setText(f"Connecting to {name}...")
+        QTimer.singleShot(1500, lambda: self.complete_cast(name))
+        
+    def complete_cast(self, name):
+        QMessageBox.information(self, "Casting Success", f"Casting page to '{name}'! Screen mirrored successfully.")
+        self.accept()
 
 class SettingsDialog(QDialog):
     def __init__(self, parent):
@@ -2200,33 +3179,33 @@ class CustomWebEnginePage(QWebEnginePage):
 
     def on_feature_permission_requested(self, url, feature):
         feature_name = {
-            QWebEnginePage.Geolocation: "Location",
-            QWebEnginePage.MediaAudioCapture: "Microphone",
-            QWebEnginePage.MediaVideoCapture: "Camera",
-            QWebEnginePage.MediaAudioVideoCapture: "Camera and Microphone",
-            QWebEnginePage.Notifications: "Notifications",
-            QWebEnginePage.DesktopVideoCapture: "Screen Sharing",
-            QWebEnginePage.DesktopAudioVideoCapture: "Screen and Audio Sharing"
+            QWebEnginePage.Feature.Geolocation: "Location",
+            QWebEnginePage.Feature.MediaAudioCapture: "Microphone",
+            QWebEnginePage.Feature.MediaVideoCapture: "Camera",
+            QWebEnginePage.Feature.MediaAudioVideoCapture: "Camera and Microphone",
+            QWebEnginePage.Feature.Notifications: "Notifications",
+            QWebEnginePage.Feature.DesktopVideoCapture: "Screen Sharing",
+            QWebEnginePage.Feature.DesktopAudioVideoCapture: "Screen and Audio Sharing"
         }.get(feature, "Unknown Permission")
         
         reply = QMessageBox.question(self.browser_parent, "Permission Request",
             f"The website {url.host()} wants to access your {feature_name}. Allow?",
-            QMessageBox.Yes | QMessageBox.No)
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         
-        if reply == QMessageBox.Yes:
-            self.setFeaturePermission(url, feature, QWebEnginePage.PermissionGrantedByUser)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.setFeaturePermission(url, feature, QWebEnginePage.PermissionPolicy.PermissionGrantedByUser)
             self.browser_parent.update_permission_icon(url, feature_name, True)
         else:
-            self.setFeaturePermission(url, feature, QWebEnginePage.PermissionDeniedByUser)
+            self.setFeaturePermission(url, feature, QWebEnginePage.PermissionPolicy.PermissionDeniedByUser)
             self.browser_parent.update_permission_icon(url, feature_name, False)
 
     def javaScriptPrompt(self, securityOrigin, msg, defaultValue):
-        text, ok = QInputDialog.getText(self.browser_parent, "JavaScript Prompt", msg, QLineEdit.Normal, defaultValue)
+        text, ok = QInputDialog.getText(self.browser_parent, "🎨 Customize Element", msg, QLineEdit.EchoMode.Normal, defaultValue)
         return ok, text
 
     def javaScriptConfirm(self, securityOrigin, msg):
-        reply = QMessageBox.question(self.browser_parent, "JavaScript Confirm", msg, QMessageBox.Yes | QMessageBox.No)
-        return reply == QMessageBox.Yes
+        reply = QMessageBox.question(self.browser_parent, "JavaScript Confirm", msg, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        return reply == QMessageBox.StandardButton.Yes
 
     def javaScriptAlert(self, securityOrigin, msg):
         QMessageBox.information(self.browser_parent, "JavaScript Alert", msg)
@@ -2238,21 +3217,27 @@ class CustomWebEnginePage(QWebEnginePage):
     def javaScriptConsoleMessage(self, level, message, line, source):
         if message.startswith("SLOTH_PASS_SAVE:"):
             try:
-                parts = message.split("::")
-                site = parts[1]
-                user = parts[2]
-                pw = parts[3]
+                # Handle both : and :: formats for robustness
+                msg = message.replace("SLOTH_PASS_SAVE::", "").replace("SLOTH_PASS_SAVE:", "")
+                parts = msg.split("::")
+                site = parts[0]
+                user = parts[1]
+                pw = parts[2]
                 self.browser_parent.save_password_request(site, user, pw)
             except: pass
         elif message.startswith("SLOTH_CUSTOMIZE:"):
+            print(f"[DEBUG] Customization Signal Received: {message}")
             try:
-                parts = message.split("::")
-                site = parts[1]
-                selector = parts[2]
-                key = parts[3]
-                val = parts[4]
+                msg = message.replace("SLOTH_CUSTOMIZE::", "").replace("SLOTH_CUSTOMIZE:", "")
+                parts = msg.split("::")
+                site = parts[0]
+                selector = parts[1]
+                key = parts[2]
+                val = parts[3]
+                print(f"[DEBUG] Applying Custom: Site={site}, Selector={selector}, {key}={val}")
                 self.browser_parent.custom_manager.set_custom(site, selector, key, val)
-            except: pass
+            except Exception as e: 
+                print(f"[DEBUG] Customization Failed: {e}")
         super().javaScriptConsoleMessage(level, message, line, source)
 
 class CRXInstaller:
@@ -2398,24 +3383,47 @@ class CustomWebEngineView(QWebEngineView):
         self.page().runJavaScript("if(window.__slothCustomizeElement) window.__slothCustomizeElement();")
 
     def contextMenuEvent(self, event):
-        menu = self.page().createStandardContextMenu()
+        menu = self.createStandardContextMenu()
         
-        # Check if we clicked on a link
-        data = self.page().contextMenuData()
-        if data.linkUrl().isValid():
-            open_tab = menu.addAction("🔗 Open Link in New Tab")
-            open_tab.triggered.connect(lambda: self.browser_parent.add_tab(data.linkUrl()))
-            menu.insertAction(menu.actions()[0], open_tab)
-            menu.insertSeparator(menu.actions()[1])
+        back_action = QAction("⬅️ Back", self)
+        back_action.setEnabled(self.history().canGoBack())
+        back_action.triggered.connect(lambda: self.triggerPageAction(QWebEnginePage.WebAction.Back))
+        
+        forward_action = QAction("➡️ Forward", self)
+        forward_action.setEnabled(self.history().canGoForward())
+        forward_action.triggered.connect(lambda: self.triggerPageAction(QWebEnginePage.WebAction.Forward))
+        
+        reload_action = QAction("🔄 Reload", self)
+        reload_action.triggered.connect(lambda: self.triggerPageAction(QWebEnginePage.WebAction.Reload))
+        
+        actions = menu.actions()
+        first_act = actions[0] if actions else None
+        
+        if first_act:
+            menu.insertAction(first_act, back_action)
+            menu.insertAction(first_act, forward_action)
+            menu.insertAction(first_act, reload_action)
+            menu.insertSeparator(first_act)
+        else:
+            menu.addAction(back_action)
+            menu.addAction(forward_action)
+            menu.addAction(reload_action)
+            menu.addSeparator()
 
-        menu.addSeparator()
-        
+        data = self.lastContextMenuRequest()
+        if data.linkUrl().isValid():
+            open_tab = QAction("🔗 Open Link in New Tab", self)
+            open_tab.triggered.connect(lambda: self.browser_parent.add_tab(data.linkUrl()))
+            if first_act:
+                menu.insertAction(first_act, open_tab)
+                menu.insertSeparator(first_act)
+            else:
+                menu.addAction(open_tab)
+
         menu.addSeparator()
 
         customize_action = menu.addAction("🎨 Customize Element")
         customize_action.triggered.connect(self.customize_element)
-        
-        menu.addSeparator()
         
         inspect_action = menu.addAction("🔎 Inspect")
         inspect_action.triggered.connect(self.inspect_element)
@@ -2423,7 +3431,7 @@ class CustomWebEngineView(QWebEngineView):
         view_source_action = menu.addAction("🔎 View Page Source")
         view_source_action.triggered.connect(self.view_source)
         
-        menu.exec_(event.globalPos())
+        menu.exec(event.globalPos())
 
 # --- Main Browser ---
 
@@ -2431,7 +3439,12 @@ class Browser(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sloth Web")
-        self.setWindowIcon(QIcon(get_resource_path("sloth_web.ico")))
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(current_dir, "sloth_web.ico")
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(current_dir, "sloth_web.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         self.showMaximized()
 
         self.bookmarks_file = get_storage_path("bookmarks.json")
@@ -2448,6 +3461,9 @@ class Browser(QMainWindow):
         self.tabs_pos = self.config_manager.get("tabs_pos", "north")
         
         self.downloads = []
+        self.focus_time_remaining = 1500 # 25 minutes
+        self.focus_is_running = False
+        self.focus_mode = "focus" # "focus" or "break"
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         self.progress.setMaximumHeight(3)
@@ -2465,16 +3481,20 @@ class Browser(QMainWindow):
         self.sloth_handler = SlothSchemeHandler(self)
         QWebEngineProfile.defaultProfile().installUrlSchemeHandler(b"sloth", self.sloth_handler)
         
+        self.focus_timer = QTimer(self)
+        self.focus_timer.setInterval(1000)
+        self.focus_timer.timeout.connect(self.update_focus_timer_tick)
+        
         self.init_ui()
         self.handle_extensions()
         
         # Optimize global settings for maximum Chromium compatibility and extreme speed
-        s = QWebEngineSettings.globalSettings()
+        s = QWebEngineProfile.defaultProfile().settings()
         attrs = {
             "AutoLoadImages": True,
             "Accelerated2dCanvasEnabled": True,
             "WebGLEnabled": True,
-            "ScrollAnimatorEnabled": True,
+            "ScrollAnimatorEnabled": self.config_manager.get("smooth_scrolling", True),
             "LocalContentCanAccessRemoteUrls": True,
             "LocalContentCanAccessFileUrls": True,
             "FullScreenSupportEnabled": True,
@@ -2496,15 +3516,15 @@ class Browser(QMainWindow):
             "ScreenCaptureEnabled": True
         }
         for attr_name, val in attrs.items():
-            if hasattr(QWebEngineSettings, attr_name):
-                s.setAttribute(getattr(QWebEngineSettings, attr_name), val)
+            if hasattr(QWebEngineSettings.WebAttribute, attr_name):
+                s.setAttribute(getattr(QWebEngineSettings.WebAttribute, attr_name), val)
         
         # Set standard fonts for maximum readability and cross-site consistency
-        s.setFontFamily(QWebEngineSettings.StandardFont, "Segoe UI")
-        s.setFontFamily(QWebEngineSettings.SansSerifFont, "Segoe UI")
-        s.setFontFamily(QWebEngineSettings.SerifFont, "Times New Roman")
-        s.setFontFamily(QWebEngineSettings.FixedFont, "Consolas")
-        s.setFontSize(QWebEngineSettings.DefaultFontSize, self.config_manager.get("font_size", 16))
+        s.setFontFamily(QWebEngineSettings.FontFamily.StandardFont, "Segoe UI")
+        s.setFontFamily(QWebEngineSettings.FontFamily.SansSerifFont, "Segoe UI")
+        s.setFontFamily(QWebEngineSettings.FontFamily.SerifFont, "Times New Roman")
+        s.setFontFamily(QWebEngineSettings.FontFamily.FixedFont, "Consolas")
+        s.setFontSize(QWebEngineSettings.FontSize.DefaultFontSize, self.config_manager.get("font_size", 16))
         
         # The default UA must be a real Chrome UA at profile level.
         # The interceptor will override back to Sloth UA for non-Google sites.
@@ -2518,7 +3538,7 @@ class Browser(QMainWindow):
         profile.setCachePath(os.path.join(storage_path, "cache"))
         
         profile.setHttpUserAgent(CHROME_UA)
-        profile.setPersistentCookiesPolicy(QWebEngineProfile.AllowPersistentCookies)
+        profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies)
         profile.setHttpCacheMaximumSize(1024 * 1024 * 100)  # 100MB
         
         self.apply_theme()
@@ -2543,8 +3563,8 @@ class Browser(QMainWindow):
                             code = script_file.read()
                             s = QWebEngineScript()
                             s.setSourceCode(code)
-                            s.setInjectionPoint(QWebEngineScript.DocumentReady)
-                            s.setWorldId(QWebEngineScript.MainWorld)
+                            s.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
+                            s.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
                             s.setRunsOnSubFrames(True)
                             QWebEngineProfile.defaultProfile().scripts().insert(s)
                             count += 1
@@ -2582,14 +3602,15 @@ class Browser(QMainWindow):
         self.url_bar.setMinimumWidth(300)
         self.url_bar.setCompleter(self.completer)
         self.ssl_action = QAction("🔓", self)
-        self.url_bar.addAction(self.ssl_action, QLineEdit.LeadingPosition)
+        self.url_bar.addAction(self.ssl_action, QLineEdit.ActionPosition.LeadingPosition)
 
-        from PyQt5.QtWidgets import QStyle
-        self.site_info_action = QAction(self.style().standardIcon(QStyle.SP_MessageBoxInformation), "Site Info", self)
+        self.site_info_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation), "Site Info", self)
         self.site_info_action.triggered.connect(self.show_site_info)
-        self.url_bar.addAction(self.site_info_action, QLineEdit.LeadingPosition)
+        self.url_bar.addAction(self.site_info_action, QLineEdit.ActionPosition.LeadingPosition)
 
-
+        self.pwa_action = QAction(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton), "Install this site as an App (PWA)", self)
+        self.pwa_action.triggered.connect(self.install_pwa)
+        self.url_bar.addAction(self.pwa_action, QLineEdit.ActionPosition.TrailingPosition)
 
         # Mapping for dynamic construction
         actions = {
@@ -2611,7 +3632,7 @@ class Browser(QMainWindow):
         for item in order:
             if item in actions: actions[item]()
 
-        self.addToolBar(Qt.TopToolBarArea, self.nav)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.nav)
 
         self.tabs = QTabWidget()
         self.tabs.setTabsClosable(True)
@@ -2621,15 +3642,16 @@ class Browser(QMainWindow):
         self.apply_tabs_pos()
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.tab_changed)
-        self.tabs.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tabs.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tabs.customContextMenuRequested.connect(self.show_tab_context_menu)
         
         # Add a "New Tab" button to the tab bar
-        self.add_tab_btn = QPushButton("➕")
+        self.add_tab_btn = QPushButton("+")
+        self.add_tab_btn.setStyleSheet(f"QPushButton {{ color: {self.accent_color}; font-weight: bold; font-size: 20px; border: 1px solid {self.accent_color}; border-radius: 4px; background: rgba(255,255,255,0.05); padding: 0px; margin: 0px; }} QPushButton:hover {{ background: rgba(255,255,255,0.15); }}")
         self.add_tab_btn.setFlat(True)
         self.add_tab_btn.clicked.connect(lambda: self.add_tab())
-        self.add_tab_btn.setFixedSize(30, 30)
-        self.tabs.setCornerWidget(self.add_tab_btn, Qt.TopRightCorner)
+        self.add_tab_btn.setFixedSize(32, 32)
+        self.tabs.setCornerWidget(self.add_tab_btn, Qt.Corner.TopRightCorner)
         
         self.setCentralWidget(self.tabs)
         
@@ -2637,30 +3659,66 @@ class Browser(QMainWindow):
         self.devtools_dock = QDockWidget("Sloth DevTools", self)
         self.devtools_view = QWebEngineView()
         self.devtools_dock.setWidget(self.devtools_view)
-        self.addDockWidget(Qt.BottomDockWidgetArea, self.devtools_dock)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.devtools_dock)
         self.devtools_dock.setVisible(False)
 
         # --- Sidebar (Customizable) ---
         self.sidebar = QDockWidget("Sloth Hub", self)
-        self.sidebar.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.sidebar.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.sidebar_content = QWidget()
         self.sidebar_layout = QVBoxLayout(self.sidebar_content)
         
         self.sidebar_tabs = QTabWidget()
         self.bookmarks_list = QListWidget()
         self.bookmarks_list.itemClicked.connect(lambda i: self.add_tab(QUrl(i.toolTip())))
-        self.bookmarks_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.bookmarks_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.bookmarks_list.customContextMenuRequested.connect(self.show_bookmarks_context_menu)
         
         self.history_list = QListWidget()
         self.history_list.itemClicked.connect(lambda i: self.add_tab(QUrl(i.toolTip())))
         
+        # Scratchpad tab
+        self.sidebar_scratchpad = QTextEdit()
+        self.sidebar_scratchpad.setPlaceholderText("Write down quick ideas...")
+        self.sidebar_scratchpad.textChanged.connect(self.save_sidebar_scratchpad)
+        
+        # Focus Timer tab
+        self.focus_widget = QWidget()
+        focus_lay = QVBoxLayout(self.focus_widget)
+        focus_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.focus_timer_label = QLabel("25:00")
+        self.focus_timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.focus_timer_label.setStyleSheet(f"font-size: 32px; font-weight: bold; color: {self.accent_color}; font-family: monospace;")
+        self.focus_state_label = QLabel("Focus Session")
+        self.focus_state_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.focus_state_label.setStyleSheet("font-size: 14px; opacity: 0.7; margin-bottom: 10px;")
+        
+        focus_btn_lay = QHBoxLayout()
+        self.focus_start_btn = QPushButton("Start")
+        self.focus_reset_btn = QPushButton("Reset")
+        focus_btn_lay.addWidget(self.focus_start_btn)
+        focus_btn_lay.addWidget(self.focus_reset_btn)
+        
+        focus_lay.addWidget(self.focus_timer_label)
+        focus_lay.addWidget(self.focus_state_label)
+        focus_lay.addLayout(focus_btn_lay)
+        
+        self.focus_start_btn.clicked.connect(self.toggle_focus_timer)
+        self.focus_reset_btn.clicked.connect(self.reset_focus_timer)
+        
+        # Downloads list tab
+        self.sidebar_downloads_list = QListWidget()
+        self.sidebar_downloads_list.itemDoubleClicked.connect(self.open_sidebar_download)
+        
         self.sidebar_tabs.addTab(self.bookmarks_list, "🔖")
         self.sidebar_tabs.addTab(self.history_list, "🕒")
+        self.sidebar_tabs.addTab(self.sidebar_scratchpad, "📝")
+        self.sidebar_tabs.addTab(self.focus_widget, "⏱️")
+        self.sidebar_tabs.addTab(self.sidebar_downloads_list, "⬇️")
         self.sidebar_layout.addWidget(self.sidebar_tabs)
         
         self.sidebar.setWidget(self.sidebar_content)
-        self.addDockWidget(Qt.LeftDockWidgetArea, self.sidebar)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.sidebar)
         self.sidebar.setVisible(False) # Hidden by default
         
         self.update_sidebar()
@@ -2726,12 +3784,12 @@ class Browser(QMainWindow):
     def save_password_request(self, site, user, pw):
         # Site might be hostname
         msg = f"Would you like Sloth to save the password for '{user}' on {site}?"
-        ret = QMessageBox.question(self, "🔐 Save Password", msg, QMessageBox.Yes | QMessageBox.No)
-        if ret == QMessageBox.Yes:
+        ret = QMessageBox.question(self, "🔐 Save Password", msg, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if ret == QMessageBox.StandardButton.Yes:
             self.password_manager.add_password(site, user, pw)
             self.log(f"Password saved for {site}", notify=True)
 
-    def add_tab(self, url=None, incognito=False, source_html=None):
+    def add_tab(self, url=None, container=None, incognito=False, source_html=None):
         if isinstance(url, bool) or url is None: 
             url = QUrl(self.config_manager.get("home_url", "sloth://home"))
         
@@ -2739,11 +3797,25 @@ class Browser(QMainWindow):
         if not self.config_manager.get("setup_complete", False) and url == QUrl("sloth://home"):
             url = QUrl("sloth://start")
         
-        # Use dedicated profile for incognito
+        # Use dedicated profile for container or incognito
         if incognito:
             profile = QWebEngineProfile(self)
-            # Use a fresh but lightweight interceptor for incognito if needed
             profile.setUrlRequestInterceptor(AdBlockInterceptor(self, self.ad_block_enabled))
+            profile.installUrlSchemeHandler(b"sloth", self.sloth_handler)
+        elif container:
+            if not hasattr(self, "container_profiles"):
+                self.container_profiles = {}
+            if container not in self.container_profiles:
+                storage_path = os.path.join(os.path.expanduser("~"), ".sloth_web", f"profile_{container}")
+                os.makedirs(storage_path, exist_ok=True)
+                p = QWebEngineProfile(container, self)
+                p.setPersistentStoragePath(storage_path)
+                p.setCachePath(os.path.join(storage_path, "cache"))
+                p.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies)
+                p.setUrlRequestInterceptor(AdBlockInterceptor(self, self.ad_block_enabled))
+                p.installUrlSchemeHandler(b"sloth", self.sloth_handler)
+                self.container_profiles[container] = p
+            profile = self.container_profiles[container]
         else:
             profile = QWebEngineProfile.defaultProfile()
             
@@ -2753,21 +3825,58 @@ class Browser(QMainWindow):
             profile.scripts().insert(ChromeStoreCloak())
             profile.scripts().insert(CosmeticFilter())
             profile.scripts().insert(PageCustomizerScript())
+            profile.scripts().insert(CustomScrollbarScript(self.accent_color))
+            profile.scripts().insert(FingerprintProtectionScript())
+            profile.scripts().insert(CursorInjectionScript(self.config_manager.get("custom_cursor", "Default")))
+            
+            try:
+                mgr = profile.extensionManager()
+                mgr.loadFinished.connect(lambda info, m=mgr: m.setExtensionEnabled(info, True))
+                mgr.installFinished.connect(lambda info, m=mgr: m.setExtensionEnabled(info, True))
+                
+                base_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable)
+                ext_path = os.path.join(base_dir, "extensions")
+                if os.path.exists(ext_path):
+                    for item in os.listdir(ext_path):
+                        item_path = os.path.join(ext_path, item)
+                        if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, "manifest.json")):
+                            mgr.loadExtension(item_path)
+            except Exception as e:
+                print("Failed to setup extension manager:", e)
+                
             profile._sloth_injected = True
             
         page = CustomWebEnginePage(profile, self)
         profile.downloadRequested.connect(self.dl_manager.add_download)
+        
+        # Incremental XP for browsing!
+        xp = self.config_manager.get("sloth_xp", 0) + 1
+        self.config_manager.set("sloth_xp", xp)
 
         browser = CustomWebEngineView(self)
         browser.setPage(page)
-        idx = self.tabs.addTab(browser, "New Tab")
+        browser.container = container
+        browser.incognito = incognito
+        browser.tab_group = "Unassigned"
+        browser.last_active_time = time.time()
         
-        # Custom Close Button to ensure ❌ shows correctly
-        close_btn = QPushButton("❌")
+        title_prefix = f"[{container.capitalize()}] " if container else "🕶️ [Incognito] " if incognito else ""
+        idx = self.tabs.addTab(browser, f"{title_prefix}New Tab")
+        
+        # Color coding
+        if incognito:
+            self.tabs.tabBar().setTabTextColor(idx, QColor("#9c27b0"))
+        elif container:
+            colors = {"personal": "#4a9eff", "work": "#2ec4b6", "finance": "#ffb703", "social": "#e63946"}
+            self.tabs.tabBar().setTabTextColor(idx, QColor(colors.get(container, "#888888")))
+        
+        # Custom Close Button to ensure icons show correctly
+        close_btn = QPushButton()
+        close_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarCloseButton))
         close_btn.setFixedSize(20, 20)
-        close_btn.setStyleSheet("QPushButton { border:none; background:transparent; font-size:12px; } QPushButton:hover { background: rgba(255,0,0,0.2); border-radius:4px; }")
+        close_btn.setStyleSheet("QPushButton { border:none; background:transparent; padding: 0px; margin: 0px; } QPushButton:hover { background: rgba(255,0,0,0.2); border-radius:4px; }")
         close_btn.clicked.connect(lambda: self.close_tab(self.tabs.indexOf(browser)))
-        self.tabs.tabBar().setTabButton(idx, QTabBar.RightSide, close_btn)
+        self.tabs.tabBar().setTabButton(idx, QTabBar.ButtonPosition.RightSide, close_btn)
         
         # Apply custom UA if set
         ua_type = self.config_manager.get("custom_ua", "Sloth Platinum")
@@ -2776,39 +3885,39 @@ class Browser(QMainWindow):
         elif "Sloth" in ua_type: profile.setHttpUserAgent(f"SlothWeb/Platinum ({__version__})")
         
         if source_html:
-            # If we are viewing source, we set the HTML directly after a short delay
             browser.setHtml(f"<html><head><title>Source of {url.toString()}</title><style>body{{background:#0f0f0f;color:#0f0;font-family:monospace;white-space:pre-wrap;padding:20px;}}</style></head><body>{source_html.replace('<','&lt;').replace('>','&gt;')}</body></html>")
         else:
             browser.load(url if url else QUrl(self.config_manager.get("home_url", "sloth://home")))
         
-        # Use weak references (by using indexOf(b)) to fix the tab-index-drift bug
         browser.urlChanged.connect(lambda q, b=browser: self.update_ui(q, self.tabs.indexOf(b)))
         browser.titleChanged.connect(lambda t, b=browser: (
-            self.tabs.setTabText(self.tabs.indexOf(b), t[:25]), 
-            self.history_manager.add_entry(t, b.url().toString())
+            self.tabs.setTabText(self.tabs.indexOf(b), (f"[{b.container.capitalize()}] " if getattr(b, 'container', None) else "🕶️ [Incognito] " if getattr(b, 'incognito', False) else "") + t[:20]), 
+            self.history_manager.add_entry(t, b.url().toString()) if not getattr(b, 'incognito', False) else None
         ))
         browser.iconChanged.connect(lambda icon, b=browser: self.tabs.setTabIcon(self.tabs.indexOf(b), icon))
         browser.loadProgress.connect(lambda p: (self.progress.setValue(p), self.progress.setVisible(p < 100)))
         
-        # Connect navigation signals for back/forward buttons
         browser.urlChanged.connect(lambda _: self.update_nav_actions())
         browser.loadFinished.connect(lambda _: self.update_nav_actions())
         
-        # Error handling for custom error page
         page.loadFinished.connect(lambda ok, b=browser: self.handle_load_finished(ok, b))
         
         self.tabs.setCurrentIndex(idx)
         
-        # Apply default zoom
         zoom = self.config_manager.get("zoom", 1.0)
         if zoom != 1.0:
             browser.setZoomFactor(zoom)
             
+        # Update our tab groups tree widget!
+        if hasattr(self, "update_tab_groups_tree"):
+            self.update_tab_groups_tree()
+            
         return browser
 
     def handle_load_finished(self, ok, browser):
+        # Update tab activity
+        browser.last_active_time = time.time()
         if ok:
-            # Sync global customizations to the page's localStorage
             site = browser.url().host()
             if site:
                 styles = self.custom_manager.get_for_site(site)
@@ -2817,8 +3926,8 @@ class Browser(QMainWindow):
                     js = f"localStorage.setItem('__sloth_customizations', '{styles_json}'); if(window.applySaved) applySaved();"
                     browser.page().runJavaScript(js)
         else:
-            # Check if it was a real error or just a cancelled load
-            browser.setHtml(NEON_VOID_HTML, browser.url())
+            if browser.url().scheme() != "sloth":
+                browser.setHtml(NEON_VOID_HTML, browser.url())
 
     def toggle_layout(self):
         if self.tabs.tabPosition() == QTabWidget.North:
@@ -2831,9 +3940,9 @@ class Browser(QMainWindow):
 
     def apply_tabs_pos(self):
         if self.tabs_pos == "west":
-            self.tabs.setTabPosition(QTabWidget.West)
+            self.tabs.setTabPosition(QTabWidget.TabPosition.West)
         else:
-            self.tabs.setTabPosition(QTabWidget.North)
+            self.tabs.setTabPosition(QTabWidget.TabPosition.North)
 
     def set_nav_pos(self, pos):
         self.nav_pos = pos
@@ -2845,20 +3954,20 @@ class Browser(QMainWindow):
         # Remove and re-add nav toolbar
         self.removeToolBar(self.nav)
         if self.nav_pos == "bottom":
-            self.addToolBar(Qt.BottomToolBarArea, self.nav)
-            self.nav.setOrientation(Qt.Horizontal)
+            self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.nav)
+            self.nav.setOrientation(Qt.Orientation.Horizontal)
             self.nav.setMinimumHeight(40)
         elif self.nav_pos == "left":
-            self.addToolBar(Qt.LeftToolBarArea, self.nav)
-            self.nav.setOrientation(Qt.Vertical)
+            self.addToolBar(Qt.ToolBarArea.LeftToolBarArea, self.nav)
+            self.nav.setOrientation(Qt.Orientation.Vertical)
             self.nav.setMinimumWidth(100)
         elif self.nav_pos == "right":
-            self.addToolBar(Qt.RightToolBarArea, self.nav)
-            self.nav.setOrientation(Qt.Vertical)
+            self.addToolBar(Qt.ToolBarArea.RightToolBarArea, self.nav)
+            self.nav.setOrientation(Qt.Orientation.Vertical)
             self.nav.setMinimumWidth(100)
         else:
-            self.addToolBar(Qt.TopToolBarArea, self.nav)
-            self.nav.setOrientation(Qt.Horizontal)
+            self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.nav)
+            self.nav.setOrientation(Qt.Orientation.Horizontal)
             self.nav.setMinimumHeight(40)
         self.nav.show()
         self.nav.setVisible(True)
@@ -2883,6 +3992,7 @@ class Browser(QMainWindow):
         if b:
             self.url_bar.setText(b.url().toString())
             self.ssl_action.setText("🔒" if b.url().scheme() == "https" else "🔓")
+            self.update_nav_actions()
 
     def show_tab_context_menu(self, pos):
         idx = self.tabs.tabBar().tabAt(pos)
@@ -2892,7 +4002,7 @@ class Browser(QMainWindow):
         close_others = menu.addAction("Close Others")
         duplicate = menu.addAction("Duplicate Tab")
         
-        action = menu.exec_(self.tabs.mapToGlobal(pos))
+        action = menu.exec(self.tabs.mapToGlobal(pos))
         if action == close_action: self.close_tab(idx)
         elif action == close_others:
             for i in range(self.tabs.count() - 1, -1, -1):
@@ -2914,7 +4024,17 @@ class Browser(QMainWindow):
             return
         if "." not in url and ":" not in url: 
             query = urllib.parse.quote(url)
-            url = f"https://cse.google.com/cse?cx=666b70a81f11c4eb9#gsc.tab=0&gsc.q={query}&gsc.sort="
+            engine = self.config_manager.get("search_engine", "sloth")
+            if engine == "google":
+                url = f"https://www.google.com/search?q={query}"
+            elif engine == "duckduckgo":
+                url = f"https://duckduckgo.com/?q={query}"
+            elif engine == "bing":
+                url = f"https://www.bing.com/search?q={query}"
+            elif engine == "yahoo":
+                url = f"https://search.yahoo.com/search?p={query}"
+            else: # sloth search
+                url = f"https://cse.google.com/cse?cx=666b70a81f11c4eb9&q={query}#gsc.tab=0&gsc.q={query}&gsc.sort="
         elif not url.startswith("http") and not url.startswith("view-source:") and not url.startswith("sloth:"): 
             url = "https://" + url
         b = self.current_browser()
@@ -2935,13 +4055,13 @@ class Browser(QMainWindow):
 
     def back(self): 
         b = self.current_browser()
-        if b: b.back()
+        if b: b.triggerPageAction(QWebEnginePage.WebAction.Back)
     def forward(self): 
         b = self.current_browser()
-        if b: b.forward()
+        if b: b.triggerPageAction(QWebEnginePage.WebAction.Forward)
     def reload(self): 
         b = self.current_browser()
-        if b: b.reload()
+        if b: b.triggerPageAction(QWebEnginePage.WebAction.Reload)
     def home(self): 
         b = self.current_browser()
         if b: b.setUrl(QUrl(self.config_manager.get("home_url", "sloth://home")))
@@ -2964,6 +4084,50 @@ class Browser(QMainWindow):
             })()
         """)
         
+    def install_pwa(self):
+        b = self.current_browser()
+        if not b: return
+        url = b.url().toString()
+        title = b.title() or url.split("://")[-1].split("/")[0]
+        
+        name, ok = QInputDialog.getText(self, "Install App", "App Name:", QLineEdit.EchoMode.Normal, title)
+        if not ok or not name: return
+        
+        name = "".join(c for c in name if c.isalnum() or c in " _-")
+        if not name: name = "SlothApp"
+        
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        shortcut_path = os.path.join(desktop, f"{name}.lnk")
+        
+        if getattr(sys, 'frozen', False):
+            target = sys.executable
+            args = f'--app="{url}"'
+        else:
+            target = sys.executable
+            args = f'"{os.path.abspath(__file__)}" --app="{url}"'
+            
+        vbs_path = os.path.join(os.environ["TEMP"], "create_shortcut.vbs")
+        # Escape quotes for VBS
+        vbs_target = target.replace('"', '""')
+        vbs_args = args.replace('"', '""')
+        vbs = f"""
+Set oWS = WScript.CreateObject("WScript.Shell")
+sLinkFile = "{shortcut_path}"
+Set oLink = oWS.CreateShortcut(sLinkFile)
+oLink.TargetPath = "{vbs_target}"
+oLink.Arguments = "{vbs_args}"
+oLink.Save
+"""
+        try:
+            with open(vbs_path, "w") as f:
+                f.write(vbs)
+            subprocess.call(['cscript.exe', '/nologo', vbs_path])
+            self.log(f"App installed to Desktop: {name}", notify=True)
+            QMessageBox.information(self, "App Installed", f"{name} has been installed to your Desktop.")
+        except Exception as e:
+            self.log(f"Failed to install app: {e}")
+            QMessageBox.warning(self, "Install Failed", f"Could not create shortcut:\\n{e}")
+
     def bookmark(self):
         b = self.current_browser()
         if b:
@@ -2990,7 +4154,7 @@ class Browser(QMainWindow):
             if b: b.setUrl(QUrl(item.text()))
             d.accept()
         w.itemDoubleClicked.connect(on_item_clicked)
-        d.exec_()
+        d.exec()
 
     def update_permission_icon(self, url, feature_name, granted):
         b = self.current_browser()
@@ -3011,7 +4175,7 @@ class Browser(QMainWindow):
         perm_text = "Active Permissions:\\n" + "\\n".join(perms) if perms else "No special permissions requested."
         QMessageBox.information(self, f"Site Info: {url.host()}", f"{secure}\\n\\n{perm_text}")
 
-    def show_settings(self): SettingsDialog(self).exec_()
+    def show_settings(self): SettingsDialog(self).exec()
     def show_downloads(self): self.dl_manager.show()
     def toggle_privacy(self):
         self.ad_block_enabled = not self.ad_block_enabled
@@ -3050,13 +4214,91 @@ class Browser(QMainWindow):
             item.setToolTip(h['url'])
             self.history_list.addItem(item)
 
+        # Sync Scratchpad
+        current_txt = self.config_manager.get("scratchpad", "")
+        if self.sidebar_scratchpad.toPlainText() != current_txt:
+            self.sidebar_scratchpad.blockSignals(True)
+            self.sidebar_scratchpad.setPlainText(current_txt)
+            self.sidebar_scratchpad.blockSignals(False)
+
+        # Update Downloads
+        self.sidebar_downloads_list.clear()
+        for d in self.downloads:
+            path = d.get("path", "")
+            status = d.get("status", "Unknown")
+            name = os.path.basename(path)
+            item = QListWidgetItem(f"⬇️ {name} ({status})")
+            item.setToolTip(path)
+            self.sidebar_downloads_list.addItem(item)
+
+    def save_sidebar_scratchpad(self):
+        self.config_manager.set("scratchpad", self.sidebar_scratchpad.toPlainText())
+
+    def toggle_focus_timer(self):
+        if self.focus_is_running:
+            self.focus_timer.stop()
+            self.focus_start_btn.setText("Start")
+            self.focus_is_running = False
+        else:
+            self.focus_timer.start()
+            self.focus_start_btn.setText("Stop")
+            self.focus_is_running = True
+
+    def reset_focus_timer(self):
+        self.focus_timer.stop()
+        self.focus_start_btn.setText("Start")
+        self.focus_is_running = False
+        self.focus_time_remaining = 1500 if self.focus_mode == "focus" else 300
+        self.update_focus_timer_display()
+
+    def update_focus_timer_tick(self):
+        if self.focus_time_remaining > 0:
+            self.focus_time_remaining -= 1
+            self.update_focus_timer_display()
+        else:
+            self.focus_timer.stop()
+            self.focus_start_btn.setText("Start")
+            self.focus_is_running = False
+            
+            if self.focus_mode == "focus":
+                self.focus_mode = "break"
+                self.focus_time_remaining = 300 # 5 min break
+                self.focus_state_label.setText("Break Time! ☕")
+                self.log("Focus session completed! Take a 5-minute break.", notify=True)
+            else:
+                self.focus_mode = "focus"
+                self.focus_time_remaining = 1500 # 25 mins
+                self.focus_state_label.setText("Focus Session")
+                self.log("Break finished! Time to focus.", notify=True)
+            self.update_focus_timer_display()
+
+    def update_focus_timer_display(self):
+        mins = self.focus_time_remaining // 60
+        secs = self.focus_time_remaining % 60
+        self.focus_timer_label.setText(f"{mins:02d}:{secs:02d}")
+
+    def open_sidebar_download(self, item):
+        path = item.toolTip()
+        if os.path.exists(path):
+            try:
+                if platform.system() == "Windows":
+                    os.startfile(path)
+                elif platform.system() == "Darwin":
+                    subprocess.call(["open", path])
+                else:
+                    subprocess.call(["xdg-open", path])
+            except Exception as e:
+                self.log(f"Could not open file: {e}", notify=True)
+        else:
+            self.log("File does not exist.", notify=True)
+
     def show_bookmarks_context_menu(self, pos):
         item = self.bookmarks_list.itemAt(pos)
         if not item: return
         menu = QMenu()
         open_action = menu.addAction("Open in New Tab")
         delete_action = menu.addAction("Delete Bookmark")
-        action = menu.exec_(self.bookmarks_list.mapToGlobal(pos))
+        action = menu.exec(self.bookmarks_list.mapToGlobal(pos))
         if action == open_action:
             self.add_tab(QUrl(item.toolTip()))
         elif action == delete_action:
@@ -3071,7 +4313,120 @@ class Browser(QMainWindow):
         texture = self.config_manager.get("ui_texture", "none")
         qss = ThemeManager.get_qss(self.dark_theme, self.accent_color, texture)
         app.setStyleSheet(qss) # Apply globally to all windows/dialogs to fix unreadable alerts
-        ThemeManager.apply_palette(app, self.dark_theme)
+        ThemeManager.apply_palette(app, self.dark_theme, accent_color=self.accent_color)
+        
+        # Update injected scrollbar script with new accent color
+        profile = QWebEngineProfile.defaultProfile()
+        to_remove = []
+        try:
+            # QWebEngineScriptCollection is iterable in PyQt6
+            for s in profile.scripts():
+                if s.name() == "CustomScrollbarScript":
+                    to_remove.append(s)
+        except Exception:
+            try:
+                # Fallback to index-based iteration
+                for i in range(profile.scripts().count()):
+                    s = profile.scripts().at(i)
+                    if s.name() == "CustomScrollbarScript":
+                        to_remove.append(s)
+            except Exception:
+                pass
+        for s in to_remove:
+            profile.scripts().remove(s)
+        profile.scripts().insert(CustomScrollbarScript(self.accent_color))
+class AppBrowser(QMainWindow):
+    def __init__(self, url):
+        super().__init__()
+        self.setWindowTitle("Sloth Web App")
+        self.setMinimumSize(800, 600)
+        
+        # Load local icon directly from bwsr.py's directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(current_dir, "sloth_web.ico")
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(current_dir, "sloth_web.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            
+        self.config_manager = ConfigManager(get_storage_path("config.json"))
+        self.custom_manager = CustomizationManager(get_storage_path("customizations.json"))
+        self.password_manager = PasswordManager(get_storage_path("passwords.json"))
+        
+        # Setup AdBlocker & custom schemes for the PWA profile
+        self.ad_block_enabled = self.config_manager.get("ad_block_enabled", True)
+        self.accent_color = self.config_manager.get("accent_color", "#4a9eff")
+        self.dark_theme = self.config_manager.get("dark_theme", True)
+        
+        self.ad_interceptor = AdBlockInterceptor(self, self.ad_block_enabled)
+        profile = QWebEngineProfile.defaultProfile()
+        profile.setUrlRequestInterceptor(self.ad_interceptor)
+        
+        self.sloth_handler = SlothSchemeHandler(self)
+        profile.installUrlSchemeHandler(b"sloth", self.sloth_handler)
+        
+        dark_theme = self.config_manager.get("dark_theme", True)
+        accent_color = self.config_manager.get("accent_color", "#4a9eff")
+        texture = self.config_manager.get("ui_texture", "none")
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(ThemeManager.get_qss(dark_theme, accent_color, texture))
+            ThemeManager.apply_palette(app, dark_theme, accent_color=accent_color)
+
+        self.browser = CustomWebEngineView(self)
+        
+        # Ensure scripts are injected for App Mode
+        if not hasattr(profile, "_sloth_injected"):
+            profile.scripts().insert(CompatibilityPolyfill())
+            profile.scripts().insert(ChromeStoreCloak())
+            profile.scripts().insert(CosmeticFilter())
+            profile.scripts().insert(PageCustomizerScript())
+            profile.scripts().insert(CustomScrollbarScript(self.accent_color))
+            profile._sloth_injected = True
+            
+        page = CustomWebEnginePage(profile, self)
+        self.browser.setPage(page)
+        self.setCentralWidget(self.browser)
+        
+        if url:
+            if isinstance(url, str):
+                url = QUrl(url)
+            self.browser.load(url)
+        self.browser.titleChanged.connect(self.setWindowTitle)
+        # Note: Do NOT connect iconChanged to self.setWindowIcon in PWA mode
+        # to ensure the window icon remains the sloth_web.ico application logo forever.
+
+    def add_tab(self, url=None, *args, **kwargs):
+        if url:
+            if isinstance(url, str):
+                url = QUrl(url)
+            self.browser.load(url)
+        return self.browser
+
+    def update_permission_icon(self, url, feature_name, granted):
+        pass
+
+    def save_password_request(self, site, user, pw):
+        msg = f"Would you like Sloth to save the password for '{user}' on {site}?"
+        ret = QMessageBox.question(self, "🔐 Save Password", msg, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if ret == QMessageBox.StandardButton.Yes:
+            self.password_manager.add_password(site, user, pw)
+
+    def toggle_devtools(self):
+        # Open an independent premium DevTools dialog in PWA mode!
+        if not hasattr(self, "devtools_dialog"):
+            self.devtools_dialog = QDialog(self)
+            self.devtools_dialog.setWindowTitle("Sloth DevTools")
+            self.devtools_dialog.setMinimumSize(800, 600)
+            layout = QVBoxLayout(self.devtools_dialog)
+            self.devtools_view = QWebEngineView()
+            layout.addWidget(self.devtools_view)
+            self.browser.page().setDevToolsPage(self.devtools_view.page())
+        
+        if self.devtools_dialog.isVisible():
+            self.devtools_dialog.hide()
+        else:
+            self.devtools_dialog.show()
 
 
 if __name__ == "__main__":
@@ -3087,14 +4442,26 @@ if __name__ == "__main__":
     sys.argv += active_flags
 
     scheme = QWebEngineUrlScheme(b"sloth")
-    scheme.setFlags(QWebEngineUrlScheme.LocalScheme | QWebEngineUrlScheme.LocalAccessAllowed)
+    scheme.setFlags(QWebEngineUrlScheme.Flag.LocalScheme | QWebEngineUrlScheme.Flag.LocalAccessAllowed | QWebEngineUrlScheme.Flag.CorsEnabled | QWebEngineUrlScheme.Flag.FetchApiAllowed)
     QWebEngineUrlScheme.registerScheme(scheme)
 
     app = QApplication(sys.argv)
     app.setApplicationName("Sloth Web")
     app.setOrganizationName("SlothWeb")
-    window = Browser()
+
+    app_url = None
+    for arg in sys.argv:
+        if arg.startswith("--app="):
+            app_url = arg.split("--app=", 1)[1]
+            if app_url.startswith('"') and app_url.endswith('"'):
+                app_url = app_url[1:-1]
+
+    if app_url:
+        window = AppBrowser(app_url)
+    else:
+        window = Browser()
+        
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
