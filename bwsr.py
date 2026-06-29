@@ -14,7 +14,7 @@ import time
 import threading
 import platform
 
-__version__ = "2.6"
+__version__ = "2.7"
 
 import pythoncom
 try:
