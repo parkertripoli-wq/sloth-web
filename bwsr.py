@@ -36,8 +36,7 @@ from PyQt6.QtWidgets import (QMainWindow, QToolBar, QLineEdit,
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import (QWebEngineUrlRequestInterceptor, QWebEngineUrlSchemeHandler, 
                                  QWebEngineUrlScheme, QWebEngineUrlRequestJob,
-                                 QWebEnginePage, QWebEngineProfile, QWebEngineScript,
-                                 QWebEngineExtensionManager, QWebEngineExtensionInfo)
+                                 QWebEnginePage, QWebEngineProfile, QWebEngineScript,)
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtGui import QIcon, QPalette, QColor, QCursor, QAction, QPixmap, QMovie
 import socket
