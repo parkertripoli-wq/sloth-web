@@ -1,62 +1,96 @@
 #!/bin/bash
+# Sloth Web 3.0 installer for Linux
+# Run in a terminal:
+#   chmod +x installer_linux.sh && ./installer_linux.sh
+# One-liner:
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/installer_linux.sh)"
+set -e
 
-# Set installation directory
-INSTALL_DIR="$HOME/SlothWeb/bwsr"
+echo "========================================"
+echo "  Sloth Web 3.0  —  Linux installer"
+echo "========================================"
+echo
+
+INSTALL_DIR="$HOME/SlothWeb"
 mkdir -p "$INSTALL_DIR"
-cd "$INSTALL_DIR" || exit 1
+cd "$INSTALL_DIR"
 
-# Detect package manager
-if [ -f /etc/debian_version ]; then
-    PM="apt"
-    PKG_MANAGER="sudo apt update && sudo apt install -y"
-elif [ -f /etc/redhat-release ]; then
-    PM="dnf"
-    PKG_MANAGER="sudo dnf install -y"
+install_pkgs() {
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -y
+    sudo apt-get install -y python3 python3-pip python3-venv curl \
+      libgl1 libegl1 libxkbcommon0 libnss3 libasound2 libxcomposite1 \
+      libxdamage1 libxrandr2 libxtst6 libxshmfence1 fonts-liberation \
+      libdbus-1-3 libxcb-cursor0 libxcb-xinerama0 || true
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y python3 python3-pip curl mesa-libGL nss alsa-lib \
+      libXcomposite libXdamage libXrandr libXtst libxkbcommon || true
+  elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -Sy --noconfirm python python-pip curl || true
+  elif command -v zypper >/dev/null 2>&1; then
+    sudo zypper install -y python3 python3-pip curl || true
+  else
+    echo "Install python3 and pip yourself, then re-run."
+  fi
+}
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Installing Python..."
+  install_pkgs
 else
-    echo "Unsupported Linux distribution. Please install Python 3.13.7 manually."
-    exit 1
+  echo "Python: $(python3 --version)"
+  echo "Installing Qt runtime libraries (needed by the browser engine)..."
+  install_pkgs
 fi
 
-echo "Installing Python 3.13.7 via $PM..."
-$PKG_MANAGER python3 python3-pip || {
-    echo "Failed to install Python. Ensure you have internet access and run with sudo if needed."
-    exit 1
-}
+python3 -m ensurepip --upgrade >/dev/null 2>&1 || true
+python3 -m pip install --upgrade pip --user
+echo "Installing PyQt6..."
+python3 -m pip install --user "PyQt6" "PyQt6-WebEngine" "requests"
 
-echo "Ensuring pip is up to date..."
-python3 -m ensurepip --upgrade
-python3 -m pip install --upgrade pip
+REPO="https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main"
+echo "Downloading Sloth Web..."
+if curl -fsSL "$REPO/SlothWeb-3.0.py" -o "SlothWeb.py"; then
+  echo "Got SlothWeb-3.0.py"
+elif curl -fsSL "$REPO/bwsr.py" -o "SlothWeb.py"; then
+  echo "Got bwsr.py (fallback)"
+else
+  echo "Download failed."
+  exit 1
+fi
+curl -fsSL "$REPO/sloth_web.ico" -o "sloth_web.ico" || true
 
-echo "Downloading the icon (sloth_web.ico)..."
-curl -L -o "sloth_web.ico" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/sloth_web.ico"
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/sloth-web" <<EOF
+#!/bin/bash
+cd "$INSTALL_DIR"
+exec python3 "$INSTALL_DIR/SlothWeb.py" "\$@"
+EOF
+chmod +x "$HOME/.local/bin/sloth-web"
 
-echo "Downloading the browser (bwsr.py)..."
-curl -L -o "bwsr.py" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py"
-
-echo "Installing dependencies..."
-python3 -m pip install PyQt5 PyQtWebEngine requests || {
-    echo "Failed to install dependencies. Ensure pip is installed and you have internet access."
-    echo "Run 'python3 -m ensurepip --upgrade' and 'python3 -m pip install --upgrade pip' if needed."
-    exit 1
-}
-
-echo "Creating desktop entry..."
-cat > "$HOME/Desktop/Sloth Web Browser.desktop" <<EOL
+DESKTOP_DIR="${XDG_DESKTOP_DIR:-$HOME/Desktop}"
+mkdir -p "$HOME/.local/share/applications" "$DESKTOP_DIR"
+cat > "$HOME/.local/share/applications/sloth-web.desktop" <<EOF
 [Desktop Entry]
-Name=Sloth Web Browser
-Exec=sh -c "cd $INSTALL_DIR && python3 bwsr.py"
-Type=Application
+Name=Sloth Web
+Comment=Sloth Web Browser 3.0
+Exec=python3 $INSTALL_DIR/SlothWeb.py
+Path=$INSTALL_DIR
 Icon=$INSTALL_DIR/sloth_web.ico
+Type=Application
 Terminal=false
 Categories=Network;WebBrowser;
-EOL
-chmod +x "$HOME/Desktop/Sloth Web Browser.desktop"
+StartupNotify=true
+EOF
+chmod +x "$HOME/.local/share/applications/sloth-web.desktop"
+cp "$HOME/.local/share/applications/sloth-web.desktop" "$DESKTOP_DIR/Sloth Web.desktop" 2>/dev/null || true
+chmod +x "$DESKTOP_DIR/Sloth Web.desktop" 2>/dev/null || true
 
-echo "Copying desktop entry to applications menu..."
-mkdir -p "$HOME/.local/share/applications"
-cp "$HOME/Desktop/Sloth Web Browser.desktop" "$HOME/.local/share/applications/"
-
-echo "Installation complete! Run Sloth Web Browser by double-clicking the desktop icon or typing 'python3 bwsr.py' in $INSTALL_DIR."
-echo "Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web. (working!)"
-echo "Bye, have a nice day!"
-read -p "Press any key to exit..."
+echo
+echo "========================================"
+echo "  Installed to: $INSTALL_DIR"
+echo "  Run:          sloth-web"
+echo "  Or:           python3 $INSTALL_DIR/SlothWeb.py"
+echo "  Add ~/.local/bin to PATH if the command is not found."
+echo "========================================"
+read -r -p "Press Enter to close..." || true
