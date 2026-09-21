@@ -1,62 +1,118 @@
 #!/bin/bash
+# Sloth Web installer for macOS  (.sh — run from Terminal, do not double-click)
+#   chmod +x installer_mac.sh && ./installer_mac.sh
+# One-liner (no file, never opens TextEdit):
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/installer_mac.sh)"
+set -e
+cd "$(dirname "$0")" 2>/dev/null || true
 
-# Set installation directory
-INSTALL_DIR="$HOME/SlothWeb/bwsr"
-mkdir -p "$INSTALL_DIR"
-cd "$INSTALL_DIR" || exit 1
+echo "========================================"
+echo "  Sloth Web 3.0  —  macOS installer"
+echo "========================================"
+echo
 
-# Detect package manager
-if [ -f /etc/debian_version ]; then
-    PM="apt"
-    PKG_MANAGER="sudo apt update && sudo apt install -y"
-elif [ -f /etc/redhat-release ]; then
-    PM="dnf"
-    PKG_MANAGER="sudo dnf install -y"
-else
-    echo "Unsupported Linux distribution. Please install Python 3.13.7 manually."
-    exit 1
+# Homebrew PATH (Apple Silicon + Intel)
+if [ -x /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
 fi
 
-echo "Installing Python 3.13.7 via $PM..."
-$PKG_MANAGER python3 python3-pip || {
-    echo "Failed to install Python. Ensure you have internet access and run with sudo if needed."
-    exit 1
-}
+INSTALL_DIR="$HOME/SlothWeb"
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
 
-echo "Ensuring pip is up to date..."
-python3 -m ensurepip --upgrade
-python3 -m pip install --upgrade pip
+if ! command -v brew >/dev/null 2>&1; then
+  echo "Installing Homebrew (you will be asked for your password)..."
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [ -x /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+fi
 
-echo "Downloading the icon (sloth_web.ico)..."
-curl -L -o "sloth_web.ico" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/sloth_web.ico"
+echo "Installing Python..."
+brew install python@3.13 python@3.12 2>/dev/null || brew install python || true
 
-echo "Downloading the browser (bwsr.py)..."
-curl -L -o "bwsr.py" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py"
+PY=""
+for c in python3.13 python3.12 python3; do
+  if command -v "$c" >/dev/null 2>&1; then PY="$c"; break; fi
+done
+if [ -z "$PY" ]; then
+  echo "Python was not found. Install it from https://www.python.org/downloads/macos/ and re-run."
+  read -r -p "Press Return to close..."
+  exit 1
+fi
+echo "Using $($PY --version)"
 
-echo "Installing dependencies..."
-python3 -m pip install PyQt5 PyQtWebEngine requests || {
-    echo "Failed to install dependencies. Ensure pip is installed and you have internet access."
-    echo "Run 'python3 -m ensurepip --upgrade' and 'python3 -m pip install --upgrade pip' if needed."
-    exit 1
-}
+"$PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
+"$PY" -m pip install --upgrade pip --user
+echo "Installing PyQt6 (this can take a minute)..."
+"$PY" -m pip install --user "PyQt6" "PyQt6-WebEngine" "requests"
 
-echo "Creating desktop entry..."
-cat > "$HOME/Desktop/Sloth Web Browser.desktop" <<EOL
-[Desktop Entry]
-Name=Sloth Web Browser
-Exec=sh -c "cd $INSTALL_DIR && python3 bwsr.py"
-Type=Application
-Icon=$INSTALL_DIR/sloth_web.ico
-Terminal=false
-Categories=Network;WebBrowser;
-EOL
-chmod +x "$HOME/Desktop/Sloth Web Browser.desktop"
+REPO="https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main"
+echo "Downloading Sloth Web..."
+if curl -fsSL "$REPO/SlothWeb-3.0.py" -o "SlothWeb.py"; then
+  echo "Got SlothWeb-3.0.py"
+elif curl -fsSL "$REPO/bwsr.py" -o "SlothWeb.py"; then
+  echo "Got bwsr.py (fallback)"
+else
+  echo "Download failed. Check your internet and try again."
+  read -r -p "Press Return to close..."
+  exit 1
+fi
+curl -fsSL "$REPO/sloth_web.ico" -o "sloth_web.ico" || true
 
-echo "Copying desktop entry to applications menu..."
-mkdir -p "$HOME/.local/share/applications"
-cp "$HOME/Desktop/Sloth Web Browser.desktop" "$HOME/.local/share/applications/"
+# Launcher in ~/bin (no sudo)
+mkdir -p "$HOME/bin"
+cat > "$HOME/bin/sloth-web" <<EOF
+#!/bin/bash
+# keep brew python on PATH
+[ -x /opt/homebrew/bin/brew ] && eval "\$(/opt/homebrew/bin/brew shellenv)"
+[ -x /usr/local/bin/brew ] && eval "\$(/usr/local/bin/brew shellenv)"
+cd "$INSTALL_DIR"
+exec $PY "$INSTALL_DIR/SlothWeb.py" "\$@"
+EOF
+chmod +x "$HOME/bin/sloth-web"
 
-echo "Installation complete! Run Sloth Web Browser by double-clicking the desktop icon or typing 'python3 bwsr.py' in $INSTALL_DIR."
-echo "Visit https://parkertripoli-wq.github.io/ to browse and install extensions for Sloth Web. (working!)"
-echo "Bye, have a nice day!"
-read -p "Press any key to exit..."
+# PATH for future terminals
+for rc in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc"; do
+  if [ -f "$rc" ] || [ "$rc" = "$HOME/.zshrc" ]; then
+    touch "$rc"
+    grep -q 'export PATH="$HOME/bin:$PATH"' "$rc" 2>/dev/null || echo 'export PATH="$HOME/bin:$PATH"' >> "$rc"
+  fi
+done
+
+# Double-click app wrapper (opens Terminal-less if pythonw, else python)
+APP="$HOME/Applications/Sloth Web.app"
+mkdir -p "$APP/Contents/MacOS" "$HOME/Applications"
+cat > "$APP/Contents/MacOS/Sloth Web" <<EOF
+#!/bin/bash
+[ -x /opt/homebrew/bin/brew ] && eval "\$(/opt/homebrew/bin/brew shellenv)"
+cd "$INSTALL_DIR"
+exec $PY "$INSTALL_DIR/SlothWeb.py"
+EOF
+chmod +x "$APP/Contents/MacOS/Sloth Web"
+cat > "$APP/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Sloth Web</string>
+  <key>CFBundleIdentifier</key><string>me.slothweb.browser</string>
+  <key>CFBundleVersion</key><string>3.0</string>
+  <key>CFBundleExecutable</key><string>Sloth Web</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+</dict>
+</plist>
+PLIST
+
+echo
+echo "========================================"
+echo "  Installed to: $INSTALL_DIR"
+echo "  Run:          sloth-web"
+echo "  Or open:      $HOME/Applications/Sloth Web.app"
+echo "  (Open a NEW Terminal window so PATH updates.)"
+echo "========================================"
+read -r -p "Press Return to close..."
