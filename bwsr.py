@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sloth Web Browser 3.0 — complete desktop browser in one file.
+Sloth Web Browser 3.1 — complete desktop browser in one file.
 
 This is the full native app (PyQt6 + Chromium / QtWebEngine): tabs, ad block,
 bookmarks, passwords, arcade, extensions, PWA mode, sloth:// pages, and the rest.
@@ -43,7 +43,63 @@ import sqlite3
 import glob
 import platform
 
-__version__ = "3.0"
+__version__ = "3.1"
+
+SHORTCUTS = [
+    ("New tab", "Ctrl + T"),
+    ("New window", "Ctrl + N"),
+    ("Close tab", "Ctrl + W"),
+    ("Reopen closed tab", "Ctrl + Shift + T"),
+    ("Next tab", "Ctrl + Tab"),
+    ("Previous tab", "Ctrl + Shift + Tab"),
+    ("Jump to tab 1–8", "Ctrl + 1 … 8"),
+    ("Last tab", "Ctrl + 9"),
+    ("Focus address bar", "Ctrl + L"),
+    ("Find in page", "Ctrl + F"),
+    ("Reload", "F5  /  Ctrl + R"),
+    ("Back", "Alt + Left"),
+    ("Forward", "Alt + Right"),
+    ("Home", "Alt + Home"),
+    ("Fullscreen", "F11"),
+    ("Zoom in", "Ctrl + +"),
+    ("Zoom out", "Ctrl + -"),
+    ("Zoom reset", "Ctrl + 0"),
+    ("Bookmark this page", "Ctrl + D"),
+    ("Show or hide bookmarks bar", "Ctrl + Shift + B"),
+    ("History", "Ctrl + H"),
+    ("Downloads", "Ctrl + J"),
+    ("Settings", "Ctrl + ,"),
+    ("Command palette", "Ctrl + K"),
+    ("Help", "sloth://help"),
+    ("Setup", "sloth://start"),
+    ("Spaces", "Ctrl + Shift + S"),
+    ("Split view", "Ctrl + \\"),
+    ("Peek", "Ctrl + Shift + P"),
+    ("Reader mode", "Ctrl + Shift + R"),
+    ("Translate page", "Ctrl + Shift + L"),
+    ("Translate selection", "Alt + Shift + T"),
+    ("Picture in picture", "Ctrl + Alt + P"),
+    ("Zen compact", "Ctrl + Shift + Z"),
+    ("Duplicate tab", "Ctrl + Alt + D"),
+    ("Pin tab", "Ctrl + Shift + D"),
+    ("Mute tab", "Ctrl + Shift + M"),
+    ("Summarise page", "Ctrl + Alt + S"),
+    ("Organise tabs", "Ctrl + Alt + O"),
+    ("Mail", "Ctrl + Shift + O"),
+    ("DevTools", "Ctrl + Shift + I"),
+    ("View source", "Ctrl + U"),
+]
+
+
+def shortcut_cards():
+    return "".join(
+        f"<div class='card'><span>{name}</span><span class='btn btn-secondary'>{keys}</span></div>"
+        for name, keys in SHORTCUTS
+    )
+
+
+def shortcut_grid():
+    return "".join(f"<div><b>{keys}</b> {name}</div>" for name, keys in SHORTCUTS)
 
 try:
     import pythoncom
@@ -2490,7 +2546,7 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                     tog("Block trackers", "block_trackers", True),
                     tog("Spoof IP lookups", "mask_ip", False),
                     tog("Show status bar", "show_status", True),
-                    tog("Show bookmarks bar", "show_bookmarks_bar", True),
+                    tog("Show bookmarks bar", "show_bookmarks_bar", False),
                     tog("Restore tabs on launch", "restore_session", True),
                     tog("Pill tabs", "pill_tabs", True),
                     tog("Floating URL bar", "floating_url", False),
@@ -2737,7 +2793,7 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
             QTimer.singleShot(80, lambda n=name: self.browser.open_space_safe(n))
             html = "<html><head><meta http-equiv='refresh' content='0; url=sloth://home'></head></html>"
         elif url == "sloth://help" or host == "help":
-            html = f"{common_head}<body><div class='container'><h1>Help & Shortcuts</h1><div class='shortcut-list'><div class='card'><span>New Tab</span><span class='btn btn-secondary'>Ctrl + T</span></div><div class='card'><span>Command palette</span><span class='btn btn-secondary'>Ctrl + K</span></div><div class='card'><span>Split view</span><span class='btn btn-secondary'>Ctrl + \\</span></div><div class='card'><span>Peek</span><span class='btn btn-secondary'>Ctrl + Shift + P</span></div><div class='card'><span>Close Tab</span><span class='btn btn-secondary'>Ctrl + W</span></div><div class='card'><span>Reload Page</span><span class='btn btn-secondary'>Ctrl + R</span></div><div class='card'><span>Dashboard</span><span class='btn btn-secondary'>Alt + Home</span></div><div class='card'><span>Settings</span><span class='btn btn-secondary'>Ctrl + ,</span></div><div class='card'><span>History</span><span class='btn btn-secondary'>Ctrl + H</span></div></div><div style='margin-top:40px;'><a href='sloth://home' class='btn btn-secondary'>← Home</a></div></div></body></html>"
+            html = f"{common_head}<body><div class='container'><h1>Help & Shortcuts</h1><p>These work from any page. Open this list any time at sloth://help.</p><div class='shortcut-list'>{shortcut_cards()}</div><div style='margin-top:40px;'><a href='sloth://start' class='btn btn-secondary'>Setup</a> <a href='sloth://home' class='btn btn-secondary'>← Home</a></div></div></body></html>"
         elif url == "sloth://about" or host == "about":
             html = f"""{common_head}<body><div class='container' style='padding:0; max-width:100%;'>
                 <div style='position:relative; width:100%; height:90vh;'>
@@ -3373,18 +3429,7 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                     <div class='card' style='display:block; margin-top:30px;'>
                         <h2 style='color:var(--accent);'>⌨️ Essential Shortcuts</h2>
                         <div style='display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; font-family:monospace; font-size:0.9rem;'>
-                            <div><b>Ctrl + T</b> New Tab</div>
-                            <div><b>Ctrl + W</b> Close Tab</div>
-                            <div><b>Ctrl + R</b> Reload</div>
-                            <div><b>Alt + Home</b> Home Page</div>
-                            <div><b>Ctrl + ,</b> Settings</div>
-                            <div><b>Ctrl + H</b> History</div>
-                            <div><b>Ctrl + J</b> Downloads</div>
-                            <div><b>Ctrl + F</b> Find</div>
-                            <div><b>Ctrl + Shift + I</b> DevTools</div>
-                            <div><b>Ctrl + Shift + Z</b> Zen compact</div>
-                            <div><b>Ctrl + Shift + B</b> Bookmarks bar</div>
-                            <div><b>Ctrl + D</b> Bookmark page</div>
+                            {shortcut_grid()}
                         </div>
                     </div>
 
@@ -3424,6 +3469,7 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                     elif key == "mask_ip":
                         self.browser.set_mask_ip(bool(val))
                     elif key == "show_bookmarks_bar":
+                        self.browser.config_manager.set("bm_bar_user_picked", True)
                         self.browser.refresh_bookmarks_bar()
                     elif key in ("show_status", "pill_tabs", "reduce_motion"):
                         self.browser.apply_theme()
@@ -4892,8 +4938,8 @@ class SettingsDialog(QDialog):
         self.restore_chk.toggled.connect(lambda v: self._set("restore_session", v))
         l2.addWidget(self.restore_chk)
         self.bm_bar_chk = QCheckBox("Show bookmarks bar")
-        self.bm_bar_chk.setChecked(bool(parent.config_manager.get("show_bookmarks_bar", True)))
-        self.bm_bar_chk.toggled.connect(lambda v: (self._set("show_bookmarks_bar", v), parent.refresh_bookmarks_bar()))
+        self.bm_bar_chk.setChecked(bool(parent.config_manager.get("show_bookmarks_bar", False)))
+        self.bm_bar_chk.toggled.connect(lambda v: (self._set("show_bookmarks_bar", v), self._set("bm_bar_user_picked", True), parent.refresh_bookmarks_bar()))
         l2.addWidget(self.bm_bar_chk)
         
         flags_btn = QPushButton("Manage Engine Flags")
@@ -5440,24 +5486,26 @@ class DownloadManager(QDialog):
         self.raise_()
 
 class UrlBar(QLineEdit):
-    """Omnibox: click once to select the whole URL, like Chrome."""
+    """Omnibox: the first click selects the whole URL, like Chrome."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._arm_select = False
 
     def focusInEvent(self, e):
         super().focusInEvent(e)
-        if e.reason() in (
-            Qt.FocusReason.ShortcutFocusReason,
-            Qt.FocusReason.TabFocusReason,
-            Qt.FocusReason.BacktabFocusReason,
-        ):
+        if e.reason() != Qt.FocusReason.MouseFocusReason:
             QTimer.singleShot(0, self.selectAll)
 
     def mousePressEvent(self, e):
-        if not self.hasFocus():
-            self.setFocus(Qt.FocusReason.MouseFocusReason)
-            self.selectAll()
-            e.accept()
-            return
+        self._arm_select = not self.hasFocus()
         super().mousePressEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(e)
+        if self._arm_select:
+            self._arm_select = False
+            self.selectAll()
 
 
 class CustomWebEngineView(QWebEngineView):
@@ -5616,8 +5664,10 @@ class Browser(QMainWindow):
                 self.config_manager.set("search_engine", "mergarms")
             if "restore_session" not in self.config_manager.config:
                 self.config_manager.set("restore_session", True)
-            if "show_bookmarks_bar" not in self.config_manager.config:
-                self.config_manager.set("show_bookmarks_bar", True)
+            if not self.config_manager.get("bm_bar_user_picked", False):
+                self.config_manager.set("show_bookmarks_bar", False)
+            elif "show_bookmarks_bar" not in self.config_manager.config:
+                self.config_manager.set("show_bookmarks_bar", False)
             self.custom_manager = CustomizationManager(get_storage_path("customizations.json"))
             try:
                 persist_default_profile()
@@ -5890,6 +5940,8 @@ class Browser(QMainWindow):
         self._tear_idx = -1
         self._tear_pos = None
         self._tearing = False
+        self._closed_tabs = []
+        self._drag_ghost = None
         
         # Add a "New Tab" button to the tab bar
         self.add_tab_btn = QPushButton("+")
@@ -6136,6 +6188,41 @@ class Browser(QMainWindow):
         except Exception:
             pass
 
+    def _ensure_drag_ghost(self):
+        if self._drag_ghost is not None:
+            return
+        g = QLabel()
+        g.setWindowFlags(
+            Qt.WindowType.ToolTip
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        g.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        g.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        g.setStyleSheet(
+            "QLabel { background: rgba(22, 28, 40, 235); color: #f4f7fb; "
+            "border: 1px solid #4a9eff; border-radius: 12px; padding: 8px 14px; "
+            "font-weight: 650; font-size: 13px; }"
+        )
+        self._drag_ghost = g
+
+    def _move_drag_ghost(self, idx, gp, outside):
+        self._ensure_drag_ghost()
+        title = (self.tabs.tabText(idx) or "Tab")[:40]
+        if outside:
+            self._drag_ghost.setText("↗  " + title + "   ·   new window")
+        else:
+            self._drag_ghost.setText("☰  " + title)
+        self._drag_ghost.adjustSize()
+        self._drag_ghost.move(gp.x() + 16, gp.y() + 18)
+        if not self._drag_ghost.isVisible():
+            self._drag_ghost.show()
+        self._drag_ghost.raise_()
+
+    def _hide_drag_ghost(self):
+        if self._drag_ghost is not None:
+            self._drag_ghost.hide()
+
     def eventFilter(self, obj, event):
         bar = getattr(self, "tabs", None)
         bar = bar.tabBar() if bar is not None else None
@@ -6147,14 +6234,19 @@ class Browser(QMainWindow):
                 self._tearing = False
             elif t == QEvent.Type.MouseMove and self._tear_idx >= 0 and (event.buttons() & Qt.MouseButton.LeftButton):
                 gp = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
-                if self._tear_pos is not None and (gp - self._tear_pos).manhattanLength() > 28:
+                if self._tear_pos is not None and (gp - self._tear_pos).manhattanLength() > 10:
                     self._tearing = True
+                    local = obj.mapFromGlobal(gp)
+                    outside = not obj.rect().adjusted(-8, -16, 8, 36).contains(local)
+                    if 0 <= self._tear_idx < self.tabs.count():
+                        self._move_drag_ghost(self._tear_idx, gp, outside)
             elif t == QEvent.Type.MouseButtonRelease and self._tear_idx >= 0:
                 gp = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
                 idx = self._tear_idx
                 tearing = self._tearing
                 self._tear_idx = -1
                 self._tearing = False
+                self._hide_drag_ghost()
                 if tearing:
                     local = obj.mapFromGlobal(gp)
                     if not obj.rect().adjusted(-12, -20, 12, 48).contains(local):
@@ -6582,6 +6674,8 @@ class Browser(QMainWindow):
         close_action = menu.addAction("Close")
         close_others = menu.addAction("Close others")
         close_right = menu.addAction("Close tabs to the right")
+        reopen = menu.addAction("Reopen closed tab")
+        reopen.setEnabled(bool(self._closed_tabs))
 
         action = menu.exec(self.tabs.mapToGlobal(pos))
         if action == new_tab:
@@ -6602,6 +6696,8 @@ class Browser(QMainWindow):
         elif action == close_right:
             for i in range(self.tabs.count() - 1, idx, -1):
                 self.close_tab(i)
+        elif action == reopen:
+            self.reopen_closed()
         elif action == duplicate:
             url = self.tabs.widget(idx).url()
             self.add_tab(url)
@@ -6666,8 +6762,15 @@ class Browser(QMainWindow):
         if w is not None and bool(getattr(w, "pinned", False)):
             self.log("Unpin the tab before closing it")
             return
+        if w is not None:
+            try:
+                url = w.url().toString()
+            except Exception:
+                url = ""
+            if url and not url.startswith("sloth://sleep"):
+                self._closed_tabs.append({"title": self.tabs.tabText(i) or url, "url": url})
+                self._closed_tabs = self._closed_tabs[-25:]
         if self.tabs.count() > 1:
-            w = self.tabs.widget(i)
             ms = Motion.duration(self.config_manager.config)
             if self.config_manager.get("tab_fade", True) and ms > 20:
                 Motion.fade_widget(self.tabs.tabBar(), 0.5, 1.0, min(ms, 160))
@@ -6676,6 +6779,40 @@ class Browser(QMainWindow):
         b = self.current_browser()
         if b:
             b.setUrl(QUrl(self.config_manager.get("home_url", "sloth://home")))
+
+    def reopen_closed(self):
+        if not getattr(self, "_closed_tabs", None):
+            self.log("Nothing to reopen")
+            return
+        item = self._closed_tabs.pop()
+        self.add_tab(QUrl(item.get("url") or "sloth://home"))
+
+    def cycle_tab(self, delta):
+        n = self.tabs.count()
+        if n < 2:
+            return
+        self.tabs.setCurrentIndex((self.tabs.currentIndex() + delta) % n)
+
+    def jump_tab(self, index):
+        if index < 0:
+            index = self.tabs.count() - 1
+        if 0 <= index < self.tabs.count():
+            self.tabs.setCurrentIndex(index)
+
+    def duplicate_current(self):
+        b = self.current_browser()
+        if b:
+            self.add_tab(b.url())
+
+    def toggle_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def focus_url_bar(self):
+        self.url_bar.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        QTimer.singleShot(0, self.url_bar.selectAll)
     def back(self): 
         b = self.current_browser()
         if b: b.triggerPageAction(QWebEnginePage.WebAction.Back)
@@ -7925,7 +8062,7 @@ chrome.i18n=chrome.i18n||{getMessage:function(k){return k;},getUILanguage:functi
         QShortcut(QKeySequence("Ctrl+T"), self, activated=self.add_tab)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=lambda: self.spawn_window())
         QShortcut(QKeySequence("Ctrl+W"), self, activated=lambda: self.close_tab(self.tabs.currentIndex()))
-        QShortcut(QKeySequence("Ctrl+L"), self, activated=lambda: self.url_bar.setFocus())
+        QShortcut(QKeySequence("Ctrl+L"), self, activated=self.focus_url_bar)
         QShortcut(QKeySequence("Ctrl+K"), self, activated=self.open_command_palette)
         QShortcut(QKeySequence("Ctrl+Shift+K"), self, activated=self.open_command_palette)
         QShortcut(QKeySequence("Ctrl+\\"), self, activated=self.toggle_split)
@@ -7957,12 +8094,27 @@ chrome.i18n=chrome.i18n||{getMessage:function(k){return k;},getUILanguage:functi
         QShortcut(QKeySequence("Ctrl+Alt+P"), self, activated=self.picture_in_picture)
         QShortcut(QKeySequence("Ctrl+Shift+U"), self, activated=self.copy_clean_url)
         QShortcut(QKeySequence("Media Play"), self, activated=self.toggle_media)
+        self._bind_app_shortcut("Ctrl+Shift+T", self.reopen_closed)
+        self._bind_app_shortcut("Ctrl+Tab", lambda: self.cycle_tab(1))
+        self._bind_app_shortcut("Ctrl+Shift+Tab", lambda: self.cycle_tab(-1))
+        self._bind_app_shortcut("Ctrl+Alt+D", self.duplicate_current)
+        self._bind_app_shortcut("F11", self.toggle_fullscreen)
+        self._bind_app_shortcut("F6", self.focus_url_bar)
+        for n in range(1, 9):
+            self._bind_app_shortcut(f"Ctrl+{n}", lambda i=n - 1: self.jump_tab(i))
+        self._bind_app_shortcut("Ctrl+9", lambda: self.jump_tab(-1))
+
+    def _bind_app_shortcut(self, seq, fn):
+        s = QShortcut(QKeySequence(seq), self)
+        s.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        s.activated.connect(fn)
+        return s
 
     def refresh_bookmarks_bar(self):
         if not hasattr(self, "bookmarks_bar"):
             return
         self.bookmarks_bar.clear()
-        show = bool(self.config_manager.get("show_bookmarks_bar", True)) and not bool(self.config_manager.get("zen_compact", False) and not self.nav.isVisible())
+        show = bool(self.config_manager.get("show_bookmarks_bar", False)) and not bool(self.config_manager.get("zen_compact", False) and not self.nav.isVisible())
         if bool(self.config_manager.get("zen_compact", False)) and not self.nav.isVisible():
             self.bookmarks_bar.setVisible(False)
         else:
@@ -7980,8 +8132,9 @@ chrome.i18n=chrome.i18n||{getMessage:function(k){return k;},getUILanguage:functi
             self.bookmarks_bar.addAction(act)
 
     def toggle_bookmarks_bar(self):
-        v = not bool(self.config_manager.get("show_bookmarks_bar", True))
+        v = not bool(self.config_manager.get("show_bookmarks_bar", False))
         self.config_manager.set("show_bookmarks_bar", v)
+        self.config_manager.set("bm_bar_user_picked", True)
         self.refresh_bookmarks_bar()
 
     def show_find(self):
@@ -8159,7 +8312,7 @@ chrome.i18n=chrome.i18n||{getMessage:function(k){return k;},getUILanguage:functi
             if zen:
                 self.bookmarks_bar.setVisible(False)
             else:
-                self.bookmarks_bar.setVisible(bool(self.config_manager.get("show_bookmarks_bar", True)))
+                self.bookmarks_bar.setVisible(bool(self.config_manager.get("show_bookmarks_bar", False)))
         if hasattr(self, "_zen_poll"):
             if zen:
                 self._zen_poll.start()
@@ -8200,7 +8353,7 @@ chrome.i18n=chrome.i18n||{getMessage:function(k){return k;},getUILanguage:functi
         self.nav.setVisible(True)
         if hasattr(self, "zen_edge"):
             self.zen_edge.setVisible(False)
-        if hasattr(self, "bookmarks_bar") and bool(self.config_manager.get("show_bookmarks_bar", True)):
+        if hasattr(self, "bookmarks_bar") and bool(self.config_manager.get("show_bookmarks_bar", False)):
             self.bookmarks_bar.setVisible(True)
 
     def _zen_hide_chrome(self):
@@ -8415,7 +8568,7 @@ if __name__ == "__main__":
     sys.excepthook = lambda t, v, tb: _crash_log("".join(traceback.format_exception(t, v, tb)))
 
     try:
-        print("Sloth Web 3.0 starting… Python", sys.version)
+        print("Sloth Web 3.1 starting… Python", sys.version)
         sys.stdout.flush()
         os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
         if sys.platform == "win32":
