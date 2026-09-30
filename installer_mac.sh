@@ -1,12 +1,14 @@
 #!/bin/bash
-# Sloth Web 3.0 — macOS installer (.sh)
+# Sloth Web 3.1 — macOS installer (.sh)
 # Do NOT double-click this file (Finder opens TextEdit).
 # In Terminal:
 #   chmod +x installer_mac.sh && ./installer_mac.sh
 set -u
 
 echo "========================================"
-echo "  Sloth Web 3.0  —  macOS installer"
+echo "  Sloth Web 3.1  —  macOS installer"
+echo "  Reinstalls even if an older copy is already there."
+echo "  This file is installer_mac.sh — run it in Terminal."
 echo "========================================"
 echo
 
@@ -84,14 +86,13 @@ fi
   exit 1
 }
 
-echo "Looking for Sloth Web..."
+echo "Installing Sloth Web 3.1 over any older copy..."
 SRC=""
 SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo "")"
 for f in \
-  "$SCRIPT_DIR/SlothWeb-3.0.py" \
-  "$SCRIPT_DIR/SlothWeb.py" \
-  "$HOME/Downloads/SlothWeb-3.0.py" \
-  "$HOME/Downloads/SlothWeb.py"
+  "$SCRIPT_DIR/SlothWeb-3.1.py" \
+  "$SCRIPT_DIR/bwsr.py" \
+  "$HOME/Downloads/SlothWeb-3.1.py"
 do
   if [ -n "$f" ] && [ -f "$f" ]; then SRC="$f"; break; fi
 done
@@ -99,18 +100,25 @@ if [ -n "$SRC" ]; then
   cp "$SRC" "$INSTALL_DIR/SlothWeb.py"
   echo "Copied $SRC"
 else
-  echo "Downloading from GitHub..."
-  if ! curl -fL --retry 2 -o "$INSTALL_DIR/SlothWeb.py" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/SlothWeb-3.0.py"; then
-    curl -fL --retry 2 -o "$INSTALL_DIR/SlothWeb.py" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/bwsr.py" || true
-  fi
+  echo "Downloading bwsr.py from GitHub..."
+  curl -fL --retry 2 -o "$INSTALL_DIR/SlothWeb.py" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py" \
+    || curl -fL --retry 2 -o "$INSTALL_DIR/SlothWeb.py" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/bwsr.py" || true
 fi
 if [ ! -s "$INSTALL_DIR/SlothWeb.py" ]; then
-  echo "Could not find SlothWeb-3.0.py."
-  echo "Put SlothWeb-3.0.py in the same folder as this installer and run it again."
+  echo "Could not find Sloth Web 3.1."
+  echo "Put SlothWeb-3.1.py in the same folder as installer_mac.sh and run it again."
   read -r -p "Press Return to close..."
   exit 1
 fi
 curl -fsSL -o "$INSTALL_DIR/sloth_web.ico" "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/sloth_web.ico" || true
+
+# launcher. Desktop app runs this .sh (not a .command file)
+cat > "$INSTALL_DIR/SlothWeb.sh" <<EOF
+#!/bin/bash
+cd "$INSTALL_DIR"
+exec "$VPY" "$INSTALL_DIR/SlothWeb.py"
+EOF
+chmod +x "$INSTALL_DIR/SlothWeb.sh"
 
 # app bundle used on the Desktop and in Applications
 write_app() {
@@ -118,8 +126,7 @@ write_app() {
   mkdir -p "$APP/Contents/MacOS"
   cat > "$APP/Contents/MacOS/Sloth Web" <<EOF
 #!/bin/bash
-cd "$INSTALL_DIR"
-exec "$VPY" "$INSTALL_DIR/SlothWeb.py"
+exec "$INSTALL_DIR/SlothWeb.sh"
 EOF
   chmod +x "$APP/Contents/MacOS/Sloth Web"
   cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -129,8 +136,8 @@ EOF
   <key>CFBundleName</key><string>Sloth Web</string>
   <key>CFBundleDisplayName</key><string>Sloth Web</string>
   <key>CFBundleIdentifier</key><string>me.slothweb.browser</string>
-  <key>CFBundleVersion</key><string>3.0</string>
-  <key>CFBundleShortVersionString</key><string>3.0</string>
+  <key>CFBundleVersion</key><string>3.1</string>
+  <key>CFBundleShortVersionString</key><string>3.1</string>
   <key>CFBundleExecutable</key><string>Sloth Web</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
@@ -146,11 +153,14 @@ cp -R "$HOME/Applications/Sloth Web.app" "$HOME/Desktop/Sloth Web.app"
 chmod -R u+rwx "$HOME/Desktop/Sloth Web.app" "$HOME/Applications/Sloth Web.app"
 xattr -dr com.apple.quarantine "$HOME/Desktop/Sloth Web.app" "$HOME/Applications/Sloth Web.app" 2>/dev/null || true
 
+cp "$INSTALL_DIR/SlothWeb.sh" "$HOME/Desktop/SlothWeb.sh"
+chmod +x "$HOME/Desktop/SlothWeb.sh"
+xattr -dr com.apple.quarantine "$HOME/Desktop/SlothWeb.sh" 2>/dev/null || true
+
 mkdir -p "$HOME/bin"
 cat > "$HOME/bin/sloth-web" <<EOF
 #!/bin/bash
-cd "$INSTALL_DIR"
-exec "$VPY" "$INSTALL_DIR/SlothWeb.py" "\$@"
+exec "$INSTALL_DIR/SlothWeb.sh" "\$@"
 EOF
 chmod +x "$HOME/bin/sloth-web"
 touch "$HOME/.zshrc"
