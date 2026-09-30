@@ -2,7 +2,8 @@
 setlocal EnableExtensions
 title Sloth Web 3.0 installer
 echo ========================================
-echo   Sloth Web 3.0  —  Windows installer
+echo   Sloth Web 3.1  —  Windows installer
+echo   Reinstalls even if an older copy is already there.
 echo ========================================
 echo.
 
@@ -83,37 +84,38 @@ if errorlevel 1 (
 )
 "%VPY%" -m pip install pywin32 win10toast >nul 2>&1
 
-:: ---- browser file: next to this installer, Downloads, then GitHub ----
+:: ---- always replace the browser file (old install is not skipped) ----
 echo.
-echo Looking for Sloth Web...
+echo Installing Sloth Web 3.1 over any older copy...
 set "GOT="
-if exist "%~dp0SlothWeb-3.0.py" copy /y "%~dp0SlothWeb-3.0.py" "%INSTALL_DIR%\SlothWeb.py" >nul && set "GOT=1"
-if not defined GOT if exist "%~dp0SlothWeb.py" copy /y "%~dp0SlothWeb.py" "%INSTALL_DIR%\SlothWeb.py" >nul && set "GOT=1"
-if not defined GOT if exist "%USERPROFILE%\Downloads\SlothWeb-3.0.py" copy /y "%USERPROFILE%\Downloads\SlothWeb-3.0.py" "%INSTALL_DIR%\SlothWeb.py" >nul && set "GOT=1"
+if exist "%~dp0SlothWeb-3.1.py" copy /y "%~dp0SlothWeb-3.1.py" "%INSTALL_DIR%\SlothWeb.py" >nul && set "GOT=1"
+if not defined GOT if exist "%~dp0bwsr.py" copy /y "%~dp0bwsr.py" "%INSTALL_DIR%\SlothWeb.py" >nul && set "GOT=1"
+if not defined GOT if exist "%USERPROFILE%\Downloads\SlothWeb-3.1.py" copy /y "%USERPROFILE%\Downloads\SlothWeb-3.1.py" "%INSTALL_DIR%\SlothWeb.py" >nul && set "GOT=1"
 if not defined GOT (
-    echo Downloading from GitHub...
-    powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; $u=@('https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/SlothWeb-3.0.py','https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/bwsr.py'); foreach($x in $u){ try { Invoke-WebRequest -Uri $x -OutFile '%INSTALL_DIR%\SlothWeb.py' -UseBasicParsing; if((Get-Item '%INSTALL_DIR%\SlothWeb.py').Length -gt 10000){ exit 0 } } catch {} }; exit 1"
+    echo Downloading bwsr.py from GitHub...
+    powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; $u=@('https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py','https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/bwsr.py'); foreach($x in $u){ try { Invoke-WebRequest -Uri $x -OutFile '%INSTALL_DIR%\SlothWeb.py' -UseBasicParsing; if((Get-Item '%INSTALL_DIR%\SlothWeb.py').Length -gt 20000){ exit 0 } } catch {} }; exit 1"
     if not errorlevel 1 set "GOT=1"
 )
 if not defined GOT (
-    echo Could not find SlothWeb-3.0.py.
-    echo Put SlothWeb-3.0.py in the same folder as this installer and run it again.
+    echo Could not find Sloth Web 3.1.
+    echo Put SlothWeb-3.1.py in the same folder as this installer and run it again.
     pause
     exit /b 1
 )
 powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/main/sloth_web.ico' -OutFile '%INSTALL_DIR%\sloth_web.ico' -UseBasicParsing } catch { }" >nul 2>&1
 
-:: launcher the shortcut actually runs
-> "%INSTALL_DIR%\launch-slothweb.bat" echo @echo off
->> "%INSTALL_DIR%\launch-slothweb.bat" echo cd /d "%INSTALL_DIR%"
->> "%INSTALL_DIR%\launch-slothweb.bat" echo "%VPYW%" "%INSTALL_DIR%\SlothWeb.py"
->> "%INSTALL_DIR%\launch-slothweb.bat" echo if errorlevel 1 pause
+:: launcher the shortcut actually runs (python.exe, not pythonw)
+> "%INSTALL_DIR%\SlothWeb.bat" echo @echo off
+>> "%INSTALL_DIR%\SlothWeb.bat" echo cd /d "%INSTALL_DIR%"
+>> "%INSTALL_DIR%\SlothWeb.bat" echo "%VPY%" "%INSTALL_DIR%\SlothWeb.py" %%*
+>> "%INSTALL_DIR%\SlothWeb.bat" echo if errorlevel 1 pause
+copy /y "%INSTALL_DIR%\SlothWeb.bat" "%INSTALL_DIR%\launch-slothweb.bat" >nul
 
-:: ---- desktop + start menu, including OneDrive desktops ----
+:: ---- desktop + start menu. Target is the .bat, never pythonw.exe ----
 echo.
 echo Creating desktop shortcut...
 set "ICON=%INSTALL_DIR%\sloth_web.ico"
-if not exist "%ICON%" set "ICON=%VPYW%,0"
+if not exist "%ICON%" set "ICON=%SystemRoot%\System32\shell32.dll,13"
 
 set "MADE=0"
 for %%D in ("%USERPROFILE%\Desktop" "%USERPROFILE%\OneDrive\Desktop" "%USERPROFILE%\OneDrive - Personal\Desktop" "%PUBLIC%\Desktop") do (
@@ -162,16 +164,17 @@ exit /b 0
 set "LNK=%~1"
 > "%TEMP%\sloth_sc.vbs" echo Set ws = CreateObject("WScript.Shell")
 >> "%TEMP%\sloth_sc.vbs" echo Set s = ws.CreateShortcut("%LNK%")
->> "%TEMP%\sloth_sc.vbs" echo s.TargetPath = "%VPYW%"
->> "%TEMP%\sloth_sc.vbs" echo s.Arguments = "%INSTALL_DIR%\SlothWeb.py"
+>> "%TEMP%\sloth_sc.vbs" echo s.TargetPath = "%INSTALL_DIR%\SlothWeb.bat"
+>> "%TEMP%\sloth_sc.vbs" echo s.Arguments = ""
 >> "%TEMP%\sloth_sc.vbs" echo s.WorkingDirectory = "%INSTALL_DIR%"
 >> "%TEMP%\sloth_sc.vbs" echo s.IconLocation = "%ICON%"
->> "%TEMP%\sloth_sc.vbs" echo s.WindowStyle = 7
+>> "%TEMP%\sloth_sc.vbs" echo s.WindowStyle = 1
 >> "%TEMP%\sloth_sc.vbs" echo s.Description = "Sloth Web"
 >> "%TEMP%\sloth_sc.vbs" echo s.Save
 cscript //nologo "%TEMP%\sloth_sc.vbs"
 if exist "%LNK%" (
     echo   wrote %LNK%
+    echo   target: %INSTALL_DIR%\SlothWeb.bat
     set "MADE=1"
 ) else (
     echo   could not write %LNK%
