@@ -44,6 +44,7 @@ import glob
 import platform
 
 __version__ = "3.1"
+__version__ = "3.1"
 
 SHORTCUTS = [
     ("New tab", "Ctrl + T"),
@@ -617,35 +618,108 @@ class ConfigManager:
         self.save()
 
 class UpdateManager:
+    """Replace this .py from GitHub. Does not use the browser download box."""
+
+    SOURCE_URL = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py"
+
     def __init__(self, parent):
         self.parent = parent
         self.local_version = __version__
-        self.version_url = "https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/version.txt"
-        self.exe_url = "https://github.com/parkertripoli-wq/sloth-web/releases/latest/download/SlothWebBrowser.exe"
+
+    def script_path(self):
+        candidates = []
+        if sys.argv and sys.argv[0]:
+            candidates.append(os.path.abspath(sys.argv[0]))
+        try:
+            candidates.append(os.path.abspath(__file__))
+        except Exception:
+            pass
+        for path in candidates:
+            if path.lower().endswith(".py") and os.path.isfile(path):
+                return path
+        return candidates[0] if candidates else ""
 
     def check_for_updates(self, force=False):
+        if not force:
+            last = float(self.parent.config_manager.get("update_check_ts", 0) or 0)
+            if time.time() - last < 6 * 3600:
+                return
         try:
-            response = requests.get(self.version_url, timeout=5)
-            response.raise_for_status()
-            remote_version = response.text.strip()
-            if remote_version > self.local_version:
-                reply = QMessageBox.question(self.parent, "Update Available", f"A new version ({remote_version}) is available. Your version is {self.local_version}. Update now?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                if reply == QMessageBox.StandardButton.Yes: self.download_and_install(remote_version)
-            elif force:
-                QMessageBox.information(self.parent, "Up to Date", f"Sloth Web Browser is up to date! (Version {self.local_version}).")
+            remote = self._fetch()
         except Exception as e:
             if force:
-                QMessageBox.warning(self.parent, "Update Error", f"Failed to check for updates: {e}")
-            self.parent.log(f"Update check failed.")
+                QMessageBox.warning(self.parent, "Update Error", f"Could not download the update:\n{e}")
+            self.parent.log("Update check failed.")
+            return
+        self.parent.config_manager.set("update_check_ts", time.time())
+        local = b""
+        path = self.script_path()
+        try:
+            if path and os.path.isfile(path):
+                with open(path, "rb") as f:
+                    local = f.read()
+        except Exception:
+            local = b""
+        if hashlib.sha256(remote).digest() == hashlib.sha256(local).digest():
+            if force:
+                QMessageBox.information(self.parent, "Up to Date", f"Sloth Web is already this version ({self.local_version}).")
+            return
+        if not force:
+            reply = QMessageBox.question(
+                self.parent,
+                "Update Available",
+                "A newer Sloth Web is on GitHub.\nInstall it and restart?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self._install_bytes(remote)
 
-    def download_and_install(self, version):
-        self.parent.log(f"Update {version} available. This standalone file will not overwrite itself from GitHub.")
-        QMessageBox.information(
-            self.parent,
-            "Update Available",
-            f"Version {version} is listed online.\n\nThis is your standalone sloth_web.py (v{self.local_version}). "
-            "It will not auto-replace itself with the GitHub copy, which would wipe your local file.",
+    def download_and_install(self, version=None):
+        self.check_for_updates(force=True)
+
+    def _fetch(self):
+        response = requests.get(
+            self.SOURCE_URL,
+            timeout=40,
+            headers={"User-Agent": "SlothWeb-Updater", "Cache-Control": "no-cache"},
         )
+        response.raise_for_status()
+        data = response.content
+        if len(data) < 20000 or b"class Browser" not in data or b"PyQt6" not in data:
+            raise RuntimeError("The file from GitHub does not look like Sloth Web.")
+        return data
+
+    def _install_bytes(self, data):
+        dest = self.script_path()
+        if not dest or not dest.lower().endswith(".py"):
+            QMessageBox.warning(
+                self.parent,
+                "Update",
+                "Sloth Web could not find its own .py file to replace.\nRun it with: python bwsr.py",
+            )
+            return
+        folder = os.path.dirname(dest)
+        tmp = os.path.join(folder, ".sloth-update.py")
+        try:
+            with open(tmp, "wb") as f:
+                f.write(data)
+            compile(data.decode("utf-8", "replace"), dest, "exec")
+            os.replace(tmp, dest)
+        except Exception as e:
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+            QMessageBox.warning(self.parent, "Update failed", str(e))
+            return
+        self.parent.log(f"Updated {os.path.basename(dest)}. Restarting.", notify=True)
+        python = sys.executable
+        flags = 0
+        if sys.platform == "win32":
+            flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+        subprocess.Popen([python, dest], cwd=folder or None, creationflags=flags)
+        QTimer.singleShot(400, QApplication.quit)
 
 class DefaultBrowserManager:
     @staticmethod
@@ -2804,7 +2878,7 @@ class SlothSchemeHandler(QWebEngineUrlSchemeHandler):
                 </div>
             </div></body></html>"""
         elif url == "sloth://update" or host == "update":
-            html = f"{common_head}<body><div class='container' style='max-width:500px;'><h1>Update Sloth</h1><p>Current Version: <b>{__version__}</b></p><div style='text-align:center; margin-top:30px;'><a href='sloth://force-update' class='btn' style='background:#ffaa00; width:100%;'>Check for Updates</a></div><div style='margin-top:40px;'><a href='sloth://home' class='btn btn-secondary'>← Home</a></div></div></body></html>"
+            html = f"{common_head}<body><div class='container' style='max-width:560px;'><h1>Update Sloth</h1><p>Current version: <b>{__version__}</b></p><p>Update downloads the browser file itself and replaces the .py you are running. It does not open a Windows installer.</p><p style='opacity:0.7;font-size:0.9rem;word-break:break-all;'>https://raw.githubusercontent.com/parkertripoli-wq/sloth-web/refs/heads/main/bwsr.py</p><div style='text-align:center; margin-top:30px;'><a href='sloth://force-update' class='btn' style='background:#ffaa00; width:100%;'>Install update from GitHub</a></div><div style='margin-top:40px;'><a href='sloth://home' class='btn btn-secondary'>← Home</a></div></div></body></html>"
         elif url == "sloth://stats" or host == "stats":
             tab_count = self.browser.tabs.count()
             history_count = len(self.browser.history_manager.history)
@@ -5871,6 +5945,15 @@ class Browser(QMainWindow):
         for item in order:
             if item in actions: actions[item]()
 
+        self.bookmarks_menu = QMenu(self)
+        self.bookmarks_menu.aboutToShow.connect(self.populate_bookmarks_menu)
+        self.bookmarks_btn = QPushButton("🔖")
+        self.bookmarks_btn.setMenu(self.bookmarks_menu)
+        self.bookmarks_btn.setToolTip("Bookmarks")
+        self.bookmarks_btn.setFlat(True)
+        self.bookmarks_btn.setFixedWidth(42)
+        self.nav.addWidget(self.bookmarks_btn)
+
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.nav)
         QTimer.singleShot(0, self.rebuild_extension_toolbar)
 
@@ -7013,6 +7096,39 @@ oLink.Save
         b = self.current_browser()
         if b:
             b.setUrl(QUrl("sloth://home"))
+
+    def populate_bookmarks_menu(self):
+        menu = self.bookmarks_menu
+        menu.clear()
+        if not self.bookmarks:
+            empty = menu.addAction("No bookmarks yet")
+            empty.setEnabled(False)
+        for b in self.bookmarks[:50]:
+            if isinstance(b, dict):
+                title = str(b.get("title") or b.get("url") or "Bookmark")
+                url = str(b.get("url") or "")
+            else:
+                title = str(b)
+                url = str(b)
+            act = menu.addAction(title[:60])
+            act.setToolTip(url)
+            act.triggered.connect(lambda _=False, u=url: self.open_bookmark(u))
+        menu.addSeparator()
+        menu.addAction("Bookmark this page").triggered.connect(self.bookmark)
+        menu.addAction("Show or hide bookmarks bar").triggered.connect(self.toggle_bookmarks_bar)
+        menu.addAction("Manage bookmarks").triggered.connect(lambda: self.add_tab(QUrl("sloth://bookmarks")))
+
+    def open_bookmark(self, url):
+        if not url:
+            return
+        if QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.add_tab(QUrl(url))
+            return
+        b = self.current_browser()
+        if b:
+            b.setUrl(QUrl(url))
+        else:
+            self.add_tab(QUrl(url))
 
     def bookmark(self):
         b = self.current_browser()
